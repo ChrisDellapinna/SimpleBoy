@@ -1,5 +1,5 @@
 SimpleBoy is a GameBoy emulator which aims to be cleanly and simply coded while providing
-a very good emulation accuracy. Its currently very much a work in progress. Cross platform
+very good emulation accuracy. Its currently very much a work in progress. Cross platform
 compatibility, debugging capabilities and a GUI are all planned.
 
 Please note this emulator was originally named "Just Another GameBoy Emulator" or "JAGBE"
