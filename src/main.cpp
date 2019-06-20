@@ -114,6 +114,7 @@ typedef signed int s32;
 
 #define CLOCK_GB 4194304
 #define CLOCK_CGB 8388608
+#define CLOCK_GB_SCREENREFRESH 70224
 
 
 /**
@@ -134,20 +135,80 @@ union reg
 /**
  * Class representing a GameBoy cartridge including the ROM data and I/O interface.
  */
-class cart
+class gameboy_cart
 {
     public:
-        cart() {}
-        ~cart() {}
+        gameboy_cart() {}
+        ~gameboy_cart() {}
 
-        bool load(char *fname);
+        bool load(const char *fname);
         u8 read8(u16 addr);
         void write8(u16 addr, u8 n);
 
     private:
         u8 *rom;
-        u32 size;
+        u32 size = 0;
 };
+
+
+/**
+ * Attempts to load the GameBoy ROM located at path fname.
+ * Automatically determines cartridge MBC from cart header (TODO).
+ *
+ * @param The name/path of the ROM file.
+ * @returns true on successful load, false otherwise.
+ */
+bool gameboy_cart::load(const char* fname)
+{
+    // hard coded for 32K ROM carts 
+    std::ifstream romfile;
+    std::streampos filesize;
+
+    romfile.open(fname, std::ios::in | std::ios::binary | std::ios::ate);
+    if (romfile.is_open())
+    {
+        printf("\nSuccessfully opened %s... Loading contents...", fname);
+        filesize = romfile.tellg();
+        romfile.seekg(0, std::ios::beg);
+
+        rom = new u8[filesize];
+        size = filesize;
+
+        if (filesize < 0x8000)  // make sure we dont read invalid position in test rom
+            romfile.read((char*)rom, filesize);
+        else
+            romfile.read((char*)rom, 0x8000);
+
+        romfile.close();
+
+        printf("\n%s loaded successfully.", fname);
+        return true;
+    }
+    else
+    {
+        printf("\nUnable to open %s... Quitting.", fname);
+        return false;
+    }
+    return false;
+}
+
+
+/**
+ *
+ */
+u8 gameboy_cart::read8(u16 addr)
+{
+    return rom[addr];
+}
+
+
+/**
+ *
+ */
+void gameboy_cart::write8(u16 addr, u8 n)
+{
+
+}
 
 
 /**
@@ -159,7 +220,7 @@ class gameboy
         gameboy() {}
         ~gameboy() {}
 
-        void init();
+        bool init();
         void clock();
         void processInterrupts();
         void execute();
@@ -172,6 +233,8 @@ class gameboy
         void reset(u32 flag);
 
     //private:
+        gameboy_cart cart;
+
         reg af, bc, de, hl;
         u16 pc, sp;
 
@@ -183,9 +246,16 @@ class gameboy
         // Clock tracking related
         u32 clks = 0;
         u32 clks_int_enabled = 0;
+        u32 ppu_clks = 0;
+
+        // OAM DMA
+        bool oam_dma_active = false;
+        u32 oam_dma_clks = 0;
+        //u16 oam_dma_src;
+        //u8 oam_dma_index;
 
         // Assorted emulated memory
-        u8 rom[0x8000];
+        //u8 rom[0x8000];
         u8 vram[0x2000];
         u8 extram[0x2000];
         u8 wram[0x2000];
@@ -280,11 +350,14 @@ void gameboy::reset(u32 flag)
 /**
  *
 */
-void gameboy::init()
+bool gameboy::init()
 {
+    if (!cart.load("test.gb"))
+        return false;
+
     if (bootromLoaded)
     {
-
+        printf("\nBoot ROM specified.");
     }
     else
     {
@@ -305,52 +378,44 @@ void gameboy::init()
         io[IO_PPU_LY] = 146;
         io[IO_PPU_STAT] = 1; //vblank
         io[IO_PPU_LCDC] = 0x80; // display on
-
-        // very temp below
-        std::ifstream romfile;
-        std::streampos filesize;
-
-        romfile.open("test.gb", std::ios::in | std::ios::binary | std::ios::ate);
-        if (romfile.is_open())
-        {
-            printf("\nSuccessfully opened test.gb... Loading contents...");
-            filesize = romfile.tellg();
-            romfile.seekg(0, std::ios::beg);
-
-            if (filesize < 0x8000)  // make sure we dont read invalid position in test rom
-                romfile.read((char*)rom, filesize);
-            else
-                romfile.read((char*)rom, 0x8000);
-
-            romfile.close();
-
-            printf("\ntest.gb loaded successfully.");
-        }
-        else
-        {
-            printf("\nUnable to open test.gb... Quitting.");
-            exit(1);
-        }
     }
+
+    return true;
 }
 
 
 /**
  * Clocks the emulated system four system (one machine) cycles.
+ * This occurs during instruction emulation (after a memory access, after processor
+ * number crunching). The keyword is this function is executed AFTER these operations.
+ *
+ * Preconditions:
+ * OAM DMA: if a DMA has been requested, oam_dma_active must = true, oam_dma_clks must = 0
+ * 
  */
 void gameboy::clock()
 {
     clks += 4;
+    ppu_clks += 4;
 
     // check lcd/stat timing
-    if (clks % 456 == 0) // If we just moved onto the next line/LY
+    if (ppu_clks >= CLOCK_GB_SCREENREFRESH)
+        ppu_clks = 0;
+
+    if ((io[IO_PPU_LCDC] & 0x80) == 0) // Display is off
+    {
+        ppu_clks = 0;
+        io[IO_PPU_STAT] &= 0xFC;
+        io[IO_PPU_STAT] |= 1; // v-blank / display off
+    }
+    else if (ppu_clks % 456 == 0) // If we just moved onto the next line/LY
     {
         if (io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 0x03) == 1) // stat=vblank, on line 153
             io[IO_PPU_STAT] &= 0xFC; // set stat to h-blank (0), leave ly as-is for ln 0
         else
             io[IO_PPU_LY]++;
     }
-    else if (clks % 456 == 4)
+    else if (ppu_clks % 456 == 4)
     {
         if (io[IO_PPU_LY] == 153)  // becomes ly=0, vblank
             io[IO_PPU_LY] = 0;
@@ -365,14 +430,54 @@ void gameboy::clock()
             io[IO_PPU_STAT] = 1; // vblank
         }
     }
-    else if (clks % 456 == 84 && (io[IO_PPU_STAT] & 3) == 2) // going from oam -> lcd transfer mode
+    else if (ppu_clks % 456 == 84 && (io[IO_PPU_STAT] & 3) == 2) // going from oam -> lcd transfer mode
     {
         io[IO_PPU_STAT]++; // stat=3 (lcd transfer)
     }
-    else if (clks % 456 == 252 && (io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
+    else if (ppu_clks % 456 == 252 && (io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
     {
         // THE TIMING FOR THIS IS WRONG (NEED EXACT PPU TIMING)
         io[IO_PPU_STAT] &= 0xFC;
+    }
+
+    // process any pending OAM DMA
+    // TEST THIS! Not super confident in this. Might have an off by one error (timing).
+    if (oam_dma_active)
+    {
+        if (oam_dma_clks == 0) // clock counter = 0 when DMA transfer is first started
+        {
+            // Currently just implement the DMA as a one time mem copy.
+            // Not sure if this is accurate enough, need more info on bus conflicts
+            // and what can and cannot be read by CPU during DMA
+            
+            if (io[IO_PPU_DMA] < 0x80) // ROM
+            {
+                for (int i = 0; i < 0xA0; i++)
+                {
+                    oam[i] = cart.read8((io[IO_PPU_DMA] << 8) + i);
+                }
+            }
+            else if (io[IO_PPU_DMA] < 0xA0) // VRAM
+                memcpy(oam, (vram + ((io[IO_PPU_DMA] - 0x80) << 8)), 0xA0);
+            else if (io[IO_PPU_DMA] < 0xC0) // External RAM
+                printf("\nOAM DMA from Ext RAM not implemented!");
+            else if (io[IO_PPU_DMA] < 0xE0) // WRAM
+                memcpy(oam, (wram + ((io[IO_PPU_DMA] - 0xC0) << 8)), 0xA0);
+            else if (io[IO_PPU_DMA] < 0xF2) // WRAM (mirror); confirm this is max valid OAM value
+                memcpy(oam, (wram + ((io[IO_PPU_DMA] - 0xE0) << 8)), 0xA0);
+            else
+            {
+                // Bad DMA address specified, cancel the DMA?
+                printf("\nOAM DMA req'd is invalid, $FF46: %X", io[IO_PPU_DMA]);
+                oam_dma_active = false;
+            }
+        }
+
+        oam_dma_clks++;
+
+        // Gekkio's docs specify that OAM DMA takes 162 machine cycles.
+        if (oam_dma_clks >= 162)
+            oam_dma_active = false;
     }
 }
 
@@ -437,7 +542,7 @@ void gameboy::processInterrupts()
 u8 gameboy::read8(u16 addr)
 {
     if (addr < 0x8000) // ROM
-        return rom[addr];
+        return cart.read8(addr);
     else if (addr < 0xA000) // VRAM
         return vram[addr - 0x8000];
     else if (addr < 0xC000) // External (cart) RAM
@@ -469,7 +574,7 @@ u8 gameboy::read8(u16 addr)
 void gameboy::write8(u16 addr, u8 n)
 {
     if (addr < 0x8000) // ROM
-        return;
+        cart.write8(addr, n);
     else if (addr < 0xA000) // VRAM
         vram[addr - 0x8000] = n;
     else if (addr < 0xC000) // External (cart) RAM
@@ -485,7 +590,32 @@ void gameboy::write8(u16 addr, u8 n)
     else if (addr < 0xFF80) // Various IO ports
     {
         printf("\nWRITE to IO $%X @ %X ", addr, pc);
-        io[addr - 0xFF00] = n; // obviously not right
+        switch (addr - 0xFF00)
+        {
+            case IO_PPU_LCDC:
+            {
+                if ((io[IO_PPU_LCDC] >> 7) == 1 && (n >> 7) == 0) // turning screen off
+                {
+                    if ((io[IO_PPU_STAT] & 3) != 1) // turning off screen while not in vblank
+                        printf("\nWARNING: Screen turned off while not in VBLANK!");
+                    io[IO_PPU_LY] = 0; // LY fixed at 0 while LCD off
+                }
+                io[IO_PPU_LCDC] = n;
+                break;
+            }
+            case IO_PPU_STAT: io[IO_PPU_STAT] &= 7; io[IO_PPU_STAT] |= (n & 0xF8); break;
+            case IO_PPU_LY: break; // read only
+            case IO_PPU_DMA:
+            {
+                printf("\nOAM DMA occurred! ");
+                io[IO_PPU_DMA] = n;
+
+                oam_dma_active = true;
+                oam_dma_clks = 0;
+            }
+
+            default: io[addr - 0xFF00] = n; // eh
+        }
     }
     else if (addr < 0xFFFF) // HRAM
         hram[addr - 0xFF80] = n;
@@ -1378,7 +1508,12 @@ int main(int argc, char *argv[])
 
     // Just some sanity testing.. blah blah..
     gameboy gb;
-    gb.init();
+    if (!gb.init())
+    {
+        printf("\n\nFailed to init gameboy class. quitting.");
+        std::cin.ignore(80, '\n');
+        return 1;
+    }
 
     for (int i = 0; i < 600000; i++)
     {
@@ -1386,7 +1521,7 @@ int main(int argc, char *argv[])
         {
             for (;;)
             {
-                printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, LY: %i, STAT mode: %i", gb.read8(gb.pc), gb.pc, gb.sp, gb.af.r, gb.bc.r, gb.de.r, gb.hl.r, gb.clks, gb.io[IO_PPU_LY], (gb.io[IO_PPU_STAT] & 3));
+                printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i", gb.read8(gb.pc), gb.pc, gb.sp, gb.af.r, gb.bc.r, gb.de.r, gb.hl.r, gb.clks, gb.ppu_clks, gb.io[IO_PPU_LY], (gb.io[IO_PPU_STAT] & 3));
                 gb.execute();
             }
         }
