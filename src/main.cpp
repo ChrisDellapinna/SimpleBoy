@@ -419,8 +419,7 @@ void gameboy::clock()
     if ((io[IO_PPU_LCDC] & 0x80) == 0) // Display is off
     {
         ppu_clks = 0;
-        io[IO_PPU_STAT] &= 0xFC;
-        io[IO_PPU_STAT] |= 1; // v-blank / display off (Cycle Accurate GameBoy Docs state mode = 0)
+        io[IO_PPU_STAT] &= 0xFC; // h-blank / display off (Cycle Accurate GameBoy Docs state mode = 0)
     }
     else
     {
@@ -654,7 +653,11 @@ void gameboy::write8(u16 addr, u8 n)
     if (addr < 0x8000) // ROM
         cart.write8(addr, n);
     else if (addr < 0xA000) // VRAM
+    {
         vram[addr - 0x8000] = n;
+        printf("\nWRITE TO VRAM @ %X : %X", addr, n);
+    }
+
     else if (addr < 0xC000) // External (cart) RAM
         return;
     else if (addr < 0xE000) // WRAM
@@ -1103,7 +1106,7 @@ void gameboy::POP(u16& nn)
     nn = 0;
     nn |= read8(sp++);
     clock();
-    nn |= ((u16)read8(sp++) >> 8);
+    nn |= ((u16)read8(sp++) << 8);
     clock();
 }
 
@@ -1403,11 +1406,10 @@ void gameboy::DEC(u8& n)
 {
     set(FLAG_N);
 
-    // VERIFY THAT BORROW IMPLEMENTATION IS CORRECT
     if ((n & 0x0F) == 0) // If bottom 4b = 0, then must borrow from bit/nibble above
-        reset(FLAG_H); // H is reset on borrow
+        set(FLAG_H); // H is SET on borrow
     else
-        set(FLAG_H);
+        reset(FLAG_H);
 
     n--;
 
@@ -1431,11 +1433,10 @@ void gameboy::DEC_HL8()
     clock();
     set(FLAG_N);
 
-    // VERIFY THAT BORROW IMPLEMENTATION IS CORRECT
     if ((n & 0x0F) == 0) // If bottom 4b = 0, then must borrow from bit/nibble above
-        reset(FLAG_H); // H is reset on borrow
+        set(FLAG_H); // H is SET on borrow
     else
-        set(FLAG_H);
+        reset(FLAG_H);
 
     n--;
     write8(hl.r, n);
@@ -1856,32 +1857,6 @@ void gameboy::EI()
 
 int main(int argc, char *argv[])
 {
-    //
-    /*SDL_Window *window = NULL;
-    SDL_Surface *screen = NULL;
-
-    if (SDL_Init(SDL_INIT_VIDEO))
-    {
-        printf("Unable to start SDL!\n");
-        return -1;
-    }
-
-    window = SDL_CreateWindow("SimpleBoy", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 320, 240, SDL_WINDOW_SHOWN);
-
-    if (window == NULL)
-    {
-        printf("Unable to create SDL windows:  %s\n", SDL_GetError());
-        return -1;
-    }
-
-    screen = SDL_GetWindowSurface(window);
-    SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 255, 255));
-    SDL_UpdateWindowSurface(window);
-
-    SDL_Delay(2000);
-
-    SDL_Quit();*/
-
     // Just some sanity testing.. blah blah..
     gameboy gb;
     if (!gb.init())
@@ -1891,20 +1866,92 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+
+    /*SDL_Window *window = NULL;
+    SDL_Surface *screen = NULL;
+    SDL_Renderer* renderer = NULL;
+    SDL_Rect r;
+
+    if (SDL_Init(SDL_INIT_VIDEO))
+    {
+        printf("\nUnable to start SDL!");
+        return -1;
+    }
+
+    window = SDL_CreateWindow("SimpleBoy", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 256, 256, SDL_WINDOW_SHOWN);
+
+    if (window == NULL)
+    {
+        printf("\nUnable to create SDL windows:  %s", SDL_GetError());
+        return -1;
+    }
+
+    //screen = SDL_GetWindowSurface(window);
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderClear(renderer);
+
+    r.x = 0;
+    r.y = 0;
+    r.w = 1;
+    r.h = 1;
+
+    for (int i = 0; i < 1500000; i++)
+    {
+        gb.execute();
+    }
+
+    //SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 255, 255));
+
+    for (int x = 0; x < 2; x++) // tile's x coord ( * 8) in the background map
+    {
+        for (int y = 0; y < 1; y++) // tile's y coord ( * 8) ...
+        {
+            for (int py = 0; py < 8; py++) // p from 0 ... 7 for each of the two bytes making up a ln of px data
+            {
+                u8 pxlsb = gb.vram[0x800 + y * 32 * 16 + x * 32 + py * 2],
+                    pxmsb = gb.vram[0x800 + y * 32 * 16 + x * 32 + py * 2 + 1];
+
+                for (int px = 0; px < 8; px++) // relative x coord of the tile
+                {
+                    r.x = (x * 8 + px);
+                    r.y = (y * 8 + py);
+
+                    u8 col = (pxlsb >> (7 - px) & 1) | ((pxmsb >> (7 - px) & 1) << 1);
+                    printf("%X ", col);
+                    col <<= 6; // close enough..
+
+                    SDL_SetRenderDrawColor(renderer, col, col, col, 255);
+                    SDL_RenderFillRect(renderer, &r);
+                    SDL_RenderPresent(renderer);
+                }
+                printf("\n");
+            }
+            printf("\n");
+        }
+    }
+
+    for (int i = 0; i < 0x1800; i++)
+    {
+        printf("%X ", gb.vram[i]);
+    }
+
+    //SDL_UpdateWindowSurface(window);
+    SDL_RenderPresent(renderer);
+
+    SDL_Delay(10000);
+    SDL_Quit();*/
+
+    
+
     for (int i = 0; i < 600000; i++)
     {
-        if (gb.pc == 0x18B)
-        {
-            for (;;)
-            {
-                /*printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i, STAT: %X, LCDC: %X, LYC: %X, IF: %X, IE: %X",
+
+                printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i, STAT: %X, LCDC: %X, LYC: %X, IF: %X, IE: %X",
                     gb.read8(gb.pc), gb.pc, gb.sp, gb.af.r, gb.bc.r, gb.de.r, gb.hl.r, gb.clks, gb.ppu_clks, gb.io[IO_PPU_LY], (gb.io[IO_PPU_STAT] & 3),
-                    gb.io[IO_PPU_STAT], gb.io[IO_PPU_LCDC], gb.io[IO_PPU_LYC], gb.io[IO_INT_IF], gb.ier);*/
+                    gb.io[IO_PPU_STAT], gb.io[IO_PPU_LCDC], gb.io[IO_PPU_LYC], gb.io[IO_INT_IF], gb.ier);
                 gb.execute();
-            }
-        }
-        
-        gb.execute();
+                std::cin.ignore(80, '\n');
     }
 
     printf("\n\nEmulation finished. Hit Enter (Return) key to exit.\n");
