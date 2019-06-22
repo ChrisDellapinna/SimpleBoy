@@ -301,6 +301,13 @@ class gameboy
         void CCF();
         void SCF();
 
+        void BIT(u8 b, u8 r);
+        void SET(u8 b, u8& r);
+        void SET(u8 b);
+        void RES(u8 b, u8& r);
+        void RES(u8 b);
+        
+
         void JP();
         void JP(bool take);
         void JP_HL();
@@ -862,7 +869,57 @@ void gameboy::execute()
         case 0xCA: JP(isSet(FLAG_Z)); break; // JP Z, nn
         case 0xCB:
         {
-            printf("\nUnimplemented CB prefix instruction encountered at %X : CB %X", pc, read8(pc + 1));
+            clock(); // clock for first opcode read
+            // Out of convenience, we'll breakdown opcodes by encoding rather than as a huge switch
+            u8 op = read8(pc++);
+            switch (op >> 6)
+            {
+                case 0: printf("\nUNIMPLEMENTED! -> CB %X", op); break;
+                case 1: // BIT
+                {
+                    u8 b = ((op >> 3) & 7);
+                    switch (op & 7) // register
+                    {
+                        case 0: BIT(b, bc.hi); break; // BIT b, B
+                        case 1: BIT(b, bc.lo); break; // BIT b, C
+                        case 2: BIT(b, de.hi); break; // BIT b, D
+                        case 3: BIT(b, de.lo); break; // BIT b, E
+                        case 4: BIT(b, hl.hi); break; // BIT b, H
+                        case 5: BIT(b, hl.lo); break; // BIT b, L
+                        case 6: clock();  BIT(b, read8(hl.r)); break; // BIT b, (HL)
+                        case 7: BIT(b, af.hi); break; // BIT b, A
+                    }
+                }
+                case 2: // RES
+                {
+                    u8 b = ((op >> 3) & 7);
+                    switch (op & 7)
+                    {
+                        case 0: RES(b, bc.hi); break; // RES b, B
+                        case 1: RES(b, bc.lo); break; // RES b, C
+                        case 2: RES(b, de.hi); break; // RES b, D
+                        case 3: RES(b, de.lo); break; // RES b, E
+                        case 4: RES(b, hl.hi); break; // RES b, H
+                        case 5: RES(b, hl.lo); break; // RES b, L
+                        case 6: RES(b); break; // RES b, (HL)
+                    }
+                }
+                case 3: // SET
+                {
+                    u8 b = ((op >> 3) & 7);
+                    switch (op & 7) // register
+                    {
+                        case 0: SET(b, bc.hi); break; // SET b, B
+                        case 1: SET(b, bc.lo); break; // SET b, C
+                        case 2: SET(b, de.hi); break; // RES b, D
+                        case 3: SET(b, de.lo); break; // RES b, E
+                        case 4: SET(b, hl.hi); break; // RES b, H
+                        case 5: SET(b, hl.lo); break; // RES b, L
+                        case 6: SET(b); break; // RES b, (HL)
+                    }
+                }
+            }
+            //printf("\nUnimplemented CB prefix instruction encountered at %X : CB %X", pc, read8(pc + 1));
             break;
         }
         case 0xCC: CALL(isSet(FLAG_Z)); break; // CALL Z, nn
@@ -1440,6 +1497,74 @@ void gameboy::CCF()
 void gameboy::SCF()
 {
     set(FLAG_C);
+    clock();
+}
+
+
+/**
+ * BIT b, r
+ *
+ * @param[in] b The bit to test.
+ * @param[in] r The register whose bit is being tested.
+ */
+void gameboy::BIT(u8 b, u8 r)
+{
+    reset(FLAG_N);
+    set(FLAG_H);
+
+    if (((r >> b) & 1) == 1)
+        reset(FLAG_Z);
+    else
+        set(FLAG_Z);
+
+    clock();
+}
+
+
+/**
+ * SET b, r
+ */
+void gameboy::SET(u8 b, u8& r)
+{
+    r |= (1 << b);
+    clock();
+}
+
+
+/**
+ * SET b, (HL)
+ */
+void gameboy::SET(u8 b)
+{
+    clock();
+    u8 n = read8(hl.r);
+    n |= (1 << b);
+    clock();
+    write8(hl.r, n);
+    clock();
+}
+
+
+/**
+ * RES b, r
+ */
+void gameboy::RES(u8 b, u8& r)
+{
+    r &= (0xFF ^ (1 << b));
+    clock();
+}
+
+
+/**
+ * RES b, (HL)
+ */
+void gameboy::RES(u8 b)
+{
+    clock();
+    u8 n = read8(hl.r);
+    n &= (0xFF ^ (1 << b));
+    clock();
+    write8(hl.r, n);
     clock();
 }
 
