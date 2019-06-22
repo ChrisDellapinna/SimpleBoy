@@ -278,6 +278,8 @@ class gameboy
 
         void ADD(u8 n);
         void ADC(u8 n);
+        void SUB(u8 n);
+        //void SBC(u8 n);
         void AND(u8 n);
         void AND_HL8();
         void AND_N();
@@ -285,6 +287,7 @@ class gameboy
         void OR_HL8();
         void OR_N();
         void XOR(u8 n);
+        void CP(u8 n);
 
         void INC(u8 &n);
         void INC_HL8();
@@ -292,6 +295,7 @@ class gameboy
         void DEC(u8& n);
         void DEC_HL8();
         void DEC(u16& nn);
+        void ADD_HL(u16 nn);
 
         void CPL();
         void CCF();
@@ -719,23 +723,29 @@ void gameboy::execute()
         case 0x04: INC(bc.hi); break; // INC B
         case 0x05: DEC(bc.hi); break; // DEC B
         case 0x06: clock(); bc.hi = read8(pc++); break; // LD B, n
+
+        case 0x09: ADD_HL(bc.r); break; // ADD HL, BC
         case 0x0A: clock(); af.hi = read8(bc.r); break; // LD A, (BC)
         case 0x0B: DEC(bc.r); break; // DEC BC
         case 0x0C: INC(bc.lo); break; // INC C
         case 0x0D: DEC(bc.lo); break; // DEC C
         case 0x0E: clock(); bc.lo = read8(pc++); break; // LD C, n
+
         case 0x11: LD(de.r); break; // LD DE, nn
         case 0x12: clock(); write8(de.r, af.hi); break; // LD (DE), A
         case 0x13: INC(de.r); break; // INC DE
         case 0x14: INC(de.hi); break; // INC D
         case 0x15: DEC(de.hi); break; // DEC D
         case 0x16: clock(); de.hi = read8(pc++); break; // LD D, n
+
         case 0x18: JR(); break; // JR n
+        case 0x19: ADD_HL(de.r); break; // ADD HL, DE
         case 0x1A: clock(); af.hi = read8(de.r); break; // LD A, (DE)
         case 0x1B: DEC(de.r); break; // DEC DE
         case 0x1C: INC(de.lo); break; // INC E
         case 0x1D: DEC(de.lo); break; // DEC E
         case 0x1E: clock(); de.lo = read8(pc++); break; // LD E, n
+
         case 0x20: JR(!isSet(FLAG_Z)); break; // JR NZ
         case 0x21: LD(hl.r); break; // LD HL, nn
         case 0x22: clock(); write8(hl.r--, af.hi); break; // LD (HLI), A
@@ -744,6 +754,7 @@ void gameboy::execute()
         case 0x25: DEC(hl.hi); break; // DEC H
         case 0x26: clock(); hl.hi = read8(pc++); break; // LD H, n
         case 0x28: JR(isSet(FLAG_Z)); break; // JR Z
+        case 0x29: ADD_HL(hl.r); break; // ADD HL, HL
         case 0x2A: clock(); af.hi = read8(hl.r++); break; // LD A, (HLI)
         case 0x2B: DEC(hl.r); break; // DEC HL
         case 0x2C: INC(hl.lo); break; // INC L
@@ -756,14 +767,21 @@ void gameboy::execute()
         case 0x33: INC(sp); break; // INC SP
         case 0x34: INC_HL8(); break; // INC (HL)   (clock handled within member func)
         case 0x35: DEC_HL8(); break; // DEC (HL)
+
         case 0x37: SCF(); break; // SCF
         case 0x38: JR(isSet(FLAG_C)); break; // JR C
+        case 0x39: ADD_HL(sp); break; // ADD HL, SP
         case 0x3A: clock(); af.hi = read8(hl.r--); break; // LD A, (HLD)
         case 0x3B: DEC(sp); break; // DEC SP
+        case 0x3C: INC(af.hi); break; // INC A
+        
         case 0x3E: clock(); af.hi = read8(pc++); break; // LD A, n
         case 0x3F: CCF(); break; // CCF
+
         case 0x47: bc.hi = af.hi; break; // LD B, A
+
         case 0x4F: bc.lo = af.hi; break; // LD C, A
+
         case 0x57: de.hi = af.hi; break; // LD D, A
         case 0x5F: de.lo = af.hi; break; // LD E, A
         case 0x67: hl.hi = af.hi; break; // LD H, A
@@ -792,6 +810,13 @@ void gameboy::execute()
         case 0x8D: ADC(hl.lo); break; // ADC A, L
         case 0x8E: clock();  ADC(read8(hl.r)); break; // ADC A, (HL)
         case 0x8F: ADC(af.hi); break; // ADC A, A
+        case 0x90: SUB(bc.hi); break; // SUB A, B
+        case 0x91: SUB(bc.lo); break; // SUB A, C
+        case 0x92: SUB(de.hi); break; // SUB A, D
+        case 0x93: SUB(de.lo); break; // SUB A, E
+        case 0x94: SUB(hl.hi); break; // SUB A, H
+        case 0x95: SUB(hl.lo); break; // SUB A, L
+        case 0x96: clock(); SUB(read8(hl.r)); break; // SUB A, (HL)
 
         case 0xA0: AND(bc.hi); break; // AND B
         case 0xA1: AND(bc.lo); break; // AND C
@@ -816,6 +841,14 @@ void gameboy::execute()
         case 0xB5: OR(hl.lo); break; // OR L
         case 0xB6: OR_HL8(); break; // OR (HL)
 
+        case 0xB8: CP(bc.hi); break; // CP B
+        case 0xB9: CP(bc.lo); break; // CP C
+        case 0xBA: CP(de.hi); break; // CP D
+        case 0xBB: CP(de.lo); break; // CP E
+        case 0xBC: CP(hl.hi); break; // CP H
+        case 0xBD: CP(hl.lo); break; // CP L
+        case 0xBE: clock();  CP(read8(hl.r)); break; // CP (HL)
+        case 0xBF: CP(af.hi); break; // CP A
         case 0xC0: RET(!isSet(FLAG_Z)); break; // RET NZ
         case 0xC1: POP(bc.r); break; // POP BC
         case 0xC2: JP(!isSet(FLAG_Z)); break; // JP NZ, nn
@@ -841,6 +874,7 @@ void gameboy::execute()
         case 0xD2: JP(!isSet(FLAG_C)); break; // JP NC, nn
         case 0xD4: CALL(!isSet(FLAG_C)); break; // CALL NC, nn
         case 0xD5: PUSH(de.r); break; // PUSH DE
+        case 0xD6: clock(); SUB(read8(pc++)); break; // SUB n
         case 0xD7: RST(0x10); break; // RST 10
         case 0xD8: RET(isSet(FLAG_C)); break; // RET C
         case 0xD9: RETI(); break; // RETI
@@ -867,6 +901,7 @@ void gameboy::execute()
         case 0xF9: LD_SPHL(); break;
         case 0xFA: LD_Ann(); break; // LD A, (nn)
         case 0xFB: EI(); break; // EI
+        case 0xFE: clock(); CP(read8(pc++)); break; // CP n
         case 0xFF: RST(0x38); break; // RST 38
 
         default: printf("\nInvalid instruction encountered at %X : %X", pc-1, op); break;
@@ -1055,6 +1090,35 @@ void gameboy::ADC(u8 n)
 
 
 /**
+ * SUB A,n
+ *
+ * @param[in] The value n to be subtracted from register A.
+ */
+void gameboy::SUB(u8 n)
+{
+    clock();
+    set(FLAG_N);
+
+    if ((af.hi & 0x0F) < (n & 0x0F))
+        set(FLAG_H);
+    else
+        reset(FLAG_H);
+
+    if (af.hi < n)  // double check. I think this is backwards. A + (-n) (in twos complement) results in carry with no borrow, no carry otherwise
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    af.hi -= n;
+
+    if (af.hi == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+}
+
+
+/**
  * AND n
  *
  * @param[in] The value n to be AND'd to register A.
@@ -1151,6 +1215,33 @@ void gameboy::XOR(u8 n)
     af.hi ^= n;
 
     if (af.hi == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+}
+
+
+/**
+ * CP n
+ *
+ * @param[in] The value n to be compared to register A.
+ */
+void gameboy::CP(u8 n)
+{
+    clock();
+    set(FLAG_N);
+
+    if ((af.hi & 0x0F) < (n & 0x0F))
+        set(FLAG_H);
+    else
+        reset(FLAG_H);
+
+    if (af.hi < n)  // double check. I think this is backwards. A + (-n) (in twos complement) results in carry with no borrow, no carry otherwise
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    if (af.hi == n)
         set(FLAG_Z);
     else
         reset(FLAG_Z);
@@ -1289,6 +1380,31 @@ void gameboy::DEC(u16& nn)
     nn--;
     clock();
     clock();
+}
+
+
+/**
+ * ADD HL, nn
+ *
+ * @param[in] The register nn to be added to HL.
+ */
+void gameboy::ADD_HL(u16 n)
+{
+    clock();
+    clock();
+    reset(FLAG_N);
+
+    if ((u32)hl.r + (u32)n > 0xFFFF)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    if ((hl.r & 0x0FFF) + (n & 0x0FFF) > 0x0FFF)
+        set(FLAG_H);
+    else
+        reset(FLAG_H);
+
+    hl.r += n;
 }
 
 
@@ -1596,9 +1712,9 @@ int main(int argc, char *argv[])
         {
             for (;;)
             {
-                printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i, STAT: %X, LCDC: %X, LYC: %X, IF: %X, IE: %X",
+                /*printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i, STAT: %X, LCDC: %X, LYC: %X, IF: %X, IE: %X",
                     gb.read8(gb.pc), gb.pc, gb.sp, gb.af.r, gb.bc.r, gb.de.r, gb.hl.r, gb.clks, gb.ppu_clks, gb.io[IO_PPU_LY], (gb.io[IO_PPU_STAT] & 3),
-                    gb.io[IO_PPU_STAT], gb.io[IO_PPU_LCDC], gb.io[IO_PPU_LYC], gb.io[IO_INT_IF], gb.ier);
+                    gb.io[IO_PPU_STAT], gb.io[IO_PPU_LCDC], gb.io[IO_PPU_LYC], gb.io[IO_INT_IF], gb.ier);*/
                 gb.execute();
             }
         }
