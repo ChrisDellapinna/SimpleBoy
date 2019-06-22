@@ -301,6 +301,9 @@ class gameboy
         void CCF();
         void SCF();
 
+        void SRL(u8& n);
+        void SRL();
+
         void BIT(u8 b, u8 r);
         void SET(u8 b, u8& r);
         void SET(u8 b);
@@ -781,7 +784,7 @@ void gameboy::execute()
         case 0x3A: clock(); af.hi = read8(hl.r--); break; // LD A, (HLD)
         case 0x3B: DEC(sp); break; // DEC SP
         case 0x3C: INC(af.hi); break; // INC A
-        
+        case 0x3D: DEC(af.hi); break; // DEC A
         case 0x3E: clock(); af.hi = read8(pc++); break; // LD A, n
         case 0x3F: CCF(); break; // CCF
 
@@ -874,7 +877,23 @@ void gameboy::execute()
             u8 op = read8(pc++);
             switch (op >> 6)
             {
-                case 0: printf("\nUNIMPLEMENTED! -> CB %X", op); break;
+                case 0: //several ops
+                {
+                    switch (op)
+                    {
+                        case 0x38: SRL(bc.hi); break; // SRL B
+                        case 0x39: SRL(bc.lo); break; // SRL C
+                        case 0x3A: SRL(de.hi); break; // SRL D
+                        case 0x3B: SRL(de.lo); break; // SRL E
+                        case 0x3C: SRL(hl.hi); break; // SRL H
+                        case 0x3D: SRL(hl.lo); break; // SRL L
+                        case 0x3E: SRL(); break; // SRL (HL)
+                        case 0x3F: SRL(af.hi); break; // SRL A
+
+                        default: printf("\nUNIMPLEMENTED! -> CB %X", op); break;
+                    }
+                    break;
+                }
                 case 1: // BIT
                 {
                     u8 b = ((op >> 3) & 7);
@@ -889,6 +908,7 @@ void gameboy::execute()
                         case 6: clock();  BIT(b, read8(hl.r)); break; // BIT b, (HL)
                         case 7: BIT(b, af.hi); break; // BIT b, A
                     }
+                    break;
                 }
                 case 2: // RES
                 {
@@ -903,6 +923,7 @@ void gameboy::execute()
                         case 5: RES(b, hl.lo); break; // RES b, L
                         case 6: RES(b); break; // RES b, (HL)
                     }
+                    break;
                 }
                 case 3: // SET
                 {
@@ -917,6 +938,7 @@ void gameboy::execute()
                         case 5: SET(b, hl.lo); break; // RES b, L
                         case 6: SET(b); break; // RES b, (HL)
                     }
+                    break;
                 }
             }
             //printf("\nUnimplemented CB prefix instruction encountered at %X : CB %X", pc, read8(pc + 1));
@@ -1497,6 +1519,44 @@ void gameboy::CCF()
 void gameboy::SCF()
 {
     set(FLAG_C);
+    clock();
+}
+
+
+/**
+ * SRL n
+ *
+ * @param[in] The register n to be shifted right.
+ */
+void gameboy::SRL(u8& n)
+{
+    reset(FLAG_N);
+    reset(FLAG_H);
+    
+    if ((n & 1) == 1)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    n >>= 1;
+
+    if (n == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    clock();
+}
+
+
+/**
+ * SRL (HL)
+ */
+void gameboy::SRL()
+{
+    clock();
+    u8 n = read8(hl.r);
+    SRL(n);
     clock();
 }
 
