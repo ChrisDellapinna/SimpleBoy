@@ -228,6 +228,8 @@ class gameboy
         void write8(u16 addr, u8 n);
         //void step();
 
+        void irq(u8 interruptPos);
+
         bool isSet(u32 flag);
         void set(u32 flag);
         void reset(u32 flag);
@@ -239,7 +241,6 @@ class gameboy
         u16 pc, sp;
 
         u8 ime = 1;
-        u8 r_ie, r_if;
 
         bool bootromLoaded = false;
 
@@ -368,7 +369,7 @@ bool gameboy::init()
         de.r = 0x00D8;
         hl.r = 0x014D;
         
-        r_ie = 0;
+        ier = 0;
 
         io[IO_PPU_SCY] = 0;
         io[IO_PPU_SCX] = 0;
@@ -399,45 +400,108 @@ void gameboy::clock()
     ppu_clks += 4;
 
     // check lcd/stat timing
-    if (ppu_clks >= CLOCK_GB_SCREENREFRESH)
-        ppu_clks = 0;
+    ppu_clks %= CLOCK_GB_SCREENREFRESH; // keep clk count within [0, CLOCK_GB_SCREENREFRESH]
 
     if ((io[IO_PPU_LCDC] & 0x80) == 0) // Display is off
     {
         ppu_clks = 0;
         io[IO_PPU_STAT] &= 0xFC;
-        io[IO_PPU_STAT] |= 1; // v-blank / display off
+        io[IO_PPU_STAT] |= 1; // v-blank / display off (Cycle Accurate GameBoy Docs state mode = 0)
     }
-    else if (ppu_clks % 456 == 0) // If we just moved onto the next line/LY
+    else
     {
-        if (io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 0x03) == 1) // stat=vblank, on line 153
-            io[IO_PPU_STAT] &= 0xFC; // set stat to h-blank (0), leave ly as-is for ln 0
+        // display on, do normal ppu clocking
+        if (ppu_clks % 456 == 0) // If we just moved onto the next line/LY
+        {
+            if (io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 0x03) == 1) // stat=vblank, on line 153
+                io[IO_PPU_STAT] &= 0xFC; // set stat to h-blank (0), leave ly as-is for ln 0
+                // POTENTIALLY TRIGGER STAT IRQ HERE?????
+            else
+                io[IO_PPU_LY]++;
+
+            // LYC Coincidence bit of STAT is always reset on this clock, except when LY=0
+            if (io[IO_PPU_LY] != 0)
+                io[IO_PPU_STAT] &= 0xFB;
+            else
+                (io[IO_PPU_LYC] == 0) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
+        }
         else
-            io[IO_PPU_LY]++;
-    }
-    else if (ppu_clks % 456 == 4)
-    {
-        if (io[IO_PPU_LY] == 153)  // becomes ly=0, vblank
-            io[IO_PPU_LY] = 0;
-        else if (io[IO_PPU_LY] <= 143) // standard display line, stat=oam search (2)
         {
-            io[IO_PPU_STAT] &= 0xFC; // stat should already =0, probably not needed
-            io[IO_PPU_STAT] |= 2;
-        }
-        else // vblank (this really only gets set on ln 144)
-        {
-            io[IO_PPU_STAT] &= 0xFC;
-            io[IO_PPU_STAT] = 1; // vblank
-        }
-    }
-    else if (ppu_clks % 456 == 84 && (io[IO_PPU_STAT] & 3) == 2) // going from oam -> lcd transfer mode
-    {
-        io[IO_PPU_STAT]++; // stat=3 (lcd transfer)
-    }
-    else if (ppu_clks % 456 == 252 && (io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
-    {
-        // THE TIMING FOR THIS IS WRONG (NEED EXACT PPU TIMING)
-        io[IO_PPU_STAT] &= 0xFC;
+            //
+            if (ppu_clks % 456 == 4)
+            {
+                if (io[IO_PPU_LY] == 153)  // becomes ly=0, vblank
+                    io[IO_PPU_LY] = 0;
+                else if (io[IO_PPU_LY] <= 143) // standard display line, stat=oam search (2)
+                {
+                    io[IO_PPU_STAT] &= 0xFC; // stat should already =0, probably not needed
+                    io[IO_PPU_STAT] |= 2;
+
+                    // Trigger STAT IRQ if enabled in STAT
+                    if ((io[IO_PPU_STAT] & 0x20) != 0)
+                        irq(INT_STAT);
+                }
+                else if (io[IO_PPU_LY] == 144) // start of vblank
+                {
+                    io[IO_PPU_STAT] &= 0xFC;
+                    io[IO_PPU_STAT] |= 1; // vblank
+                    irq(INT_VBLANK);
+
+                    // Trigger STAT IRQ if enabled in STAT
+                    if ((io[IO_PPU_STAT] & 0x10) != 0)
+                        irq(INT_STAT);
+                }
+
+            }
+            else if (ppu_clks % 456 == 84 && (io[IO_PPU_STAT] & 3) == 2) // going from oam -> lcd transfer mode
+            {
+                io[IO_PPU_STAT]++; // stat=3 (lcd transfer)
+            }
+            else if (ppu_clks % 456 == 252 && (io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
+            {
+                // THE TIMING FOR THIS IS WRONG (NEED EXACT PPU TIMING)
+                io[IO_PPU_STAT] &= 0xFC;
+
+                // Trigger STAT IRQ if enabled
+                if ((io[IO_PPU_STAT] & 8) != 0)
+                    irq(INT_STAT);
+            }
+
+            // Perform the LY/LYC comparison, special case for line 153 (clk 4 compares LYC to 153, clk 8 is always flag reset)
+            if (io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 1)
+            {
+                if ((ppu_clks % 456) == 4) // special case, LYC compared to 153 not LY's value of 0
+                    (io[IO_PPU_LYC] == 153) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
+                else if ((ppu_clks % 456) == 8) // special case, coincidence bit is always reset
+                    io[IO_PPU_STAT] &= 0xFB;
+                else // otherwise we compare LYC to LY (=0 in this case) as usual
+                    (io[IO_PPU_LYC] == 0) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
+            }
+            else
+                (io[IO_PPU_LY] == io[IO_PPU_LYC]) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
+
+            // Perform a STAT IRQ if coincidence bit set, coincidence interrupt enabled in STAT, etc
+            if ((ppu_clks % 456) == 4)
+            {
+                if (!(io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 2)) // not on line 0
+                {
+                    if ((io[IO_PPU_STAT] & 4) != 0) // coincidence bit set
+                    {
+                        if ((io[IO_PPU_STAT] & 0x40) != 0) // STAT IRQ on LY=LYC set
+                            irq(INT_STAT);
+                    }
+                }
+            }
+            // special case, on line 153, irq possibly triggered at clks=12 if LY=LYC=0
+            else if ((ppu_clks % 456) == 12 && io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 1)
+            {
+                if ((io[IO_PPU_STAT] & 4) != 0) // coincidence bit set
+                {
+                    if ((io[IO_PPU_STAT] & 0x40) != 0) // STAT IRQ on LY=LYC set
+                        irq(INT_STAT);
+                }
+            }
+        } 
     }
 
     // process any pending OAM DMA
@@ -490,7 +554,7 @@ void gameboy::processInterrupts()
 {
     if (ime == 1) // interrupts enabled
     {
-        u8 irqAndEnabled = r_ie & r_if;
+        u8 irqAndEnabled = io[IO_INT_IF] & ier;
         if ((irqAndEnabled) != 0) // an interrupt(s) are enabled and requesting to be triggered
         {
             // Note this is NOT accurate emulation of how the GB handles and processes
@@ -501,27 +565,27 @@ void gameboy::processInterrupts()
             if (((irqAndEnabled >> INT_VBLANK) & 1) == 1)
             {
                 vector = 0x0040;
-                r_if ^= (1 << INT_VBLANK);
+                io[IO_INT_IF] ^= (1 << INT_VBLANK);
             }
             else if (((irqAndEnabled >> INT_STAT) & 1) == 1)
             {
                 vector = 0x0048;
-                r_if ^= (1 << INT_STAT);
+                io[IO_INT_IF] ^= (1 << INT_STAT);
             }
             else if (((irqAndEnabled >> INT_TIMER) & 1) == 1)
             {
                 vector = 0x0050;
-                r_if ^= (1 << INT_TIMER);
+                io[IO_INT_IF] ^= (1 << INT_TIMER);
             }
             else if (((irqAndEnabled >> INT_SERIAL) & 1) == 1)
             {
                 vector = 0x0058;
-                r_if ^= (1 << INT_SERIAL);
+                io[IO_INT_IF] ^= (1 << INT_SERIAL);
             }
             else // INT_JOYPAD
             {
                 vector = 0x0060;
-                r_if ^= (1 << INT_JOYPAD);
+                io[IO_INT_IF] ^= (1 << INT_JOYPAD);
             }
 
             // Push current pc to stack then jump
@@ -621,6 +685,17 @@ void gameboy::write8(u16 addr, u8 n)
         hram[addr - 0xFF80] = n;
     else
         ier = n;
+}
+
+
+/**
+ * Requests an interrupt by setting the bit in IF ($FF0F) at position interruptPos.
+ *
+ * @param[in] Position of the flag to set in IF.
+ */
+void gameboy::irq(u8 interruptPos)
+{
+    io[IO_INT_IF] |= (1 << interruptPos);
 }
 
 
@@ -1521,7 +1596,9 @@ int main(int argc, char *argv[])
         {
             for (;;)
             {
-                printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i", gb.read8(gb.pc), gb.pc, gb.sp, gb.af.r, gb.bc.r, gb.de.r, gb.hl.r, gb.clks, gb.ppu_clks, gb.io[IO_PPU_LY], (gb.io[IO_PPU_STAT] & 3));
+                printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i, STAT: %X, LCDC: %X, LYC: %X, IF: %X, IE: %X",
+                    gb.read8(gb.pc), gb.pc, gb.sp, gb.af.r, gb.bc.r, gb.de.r, gb.hl.r, gb.clks, gb.ppu_clks, gb.io[IO_PPU_LY], (gb.io[IO_PPU_STAT] & 3),
+                    gb.io[IO_PPU_STAT], gb.io[IO_PPU_LCDC], gb.io[IO_PPU_LYC], gb.io[IO_INT_IF], gb.ier);
                 gb.execute();
             }
         }
