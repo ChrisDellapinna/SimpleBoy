@@ -268,6 +268,7 @@ class gameboy
 
         // Instruction set functions
         //void LD
+        void LD_HL_N();
         void LD(u16& n);
         void LD_SPHL();
         void LDH_nA();
@@ -798,7 +799,7 @@ void gameboy::execute()
         case 0x33: INC(sp); break; // INC SP
         case 0x34: INC_HL8(); break; // INC (HL)   (clock handled within member func)
         case 0x35: DEC_HL8(); break; // DEC (HL)
-
+        case 0x36: LD_HL_N(); break; // LD (HL), n
         case 0x37: SCF(); break; // SCF
         case 0x38: JR(isSet(FLAG_C)); break; // JR C
         case 0x39: ADD_HL(sp); break; // ADD HL, SP
@@ -808,18 +809,60 @@ void gameboy::execute()
         case 0x3D: DEC(af.hi); break; // DEC A
         case 0x3E: clock(); af.hi = read8(pc++); break; // LD A, n
         case 0x3F: CCF(); break; // CCF
-
+        case 0x40: clock(); break;  // LD B, B
+        case 0x41: bc.hi = bc.lo; clock(); break; // LD B, C
+        case 0x42: bc.hi = de.hi; clock(); break; // LD B, D
+        case 0x43: bc.hi = de.lo; clock(); break; // LD B, E
+        case 0x44: bc.hi = hl.hi; clock(); break; // LD B, H
+        case 0x45: bc.hi = hl.lo; clock(); break; // LD B, L
+        case 0x46: clock(); bc.hi = read8(hl.r); clock(); break; // LD B, (HL)
         case 0x47: bc.hi = af.hi; break; // LD B, A
-
+        case 0x48: bc.lo = bc.hi; clock(); break; // LD C, B
+        case 0x49: clock(); break; // LD C, C
+        case 0x4A: bc.lo = de.hi; clock(); break; // LD C, D
+        case 0x4B: bc.lo = de.lo; clock(); break; // LD C, E
+        case 0x4C: bc.lo = hl.hi; clock(); break; // LD C, H
+        case 0x4D: bc.lo = hl.lo; clock(); break; // LD C, L
+        case 0x4E: clock(); bc.lo = read8(hl.r); clock(); break; // LD C, (HL)
         case 0x4F: bc.lo = af.hi; break; // LD C, A
-
+        case 0x50: de.hi = bc.hi; clock(); break; // LD D, B
+        case 0x51: de.hi = bc.lo; clock(); break; // LD D, C
+        case 0x52: clock(); break; // LD D, D
+        case 0x53: de.hi = de.lo; clock(); break; // LD D, E
+        case 0x54: de.hi = hl.hi; clock(); break; // LD D, H
+        case 0x55: de.hi = hl.lo; clock(); break; // LD D, L
+        case 0x56: clock(); de.hi = read8(hl.r); clock(); break; // LD D, (HL)
         case 0x57: de.hi = af.hi; break; // LD D, A
-
+        case 0x58: de.lo = bc.hi; clock(); break; // LD E, B
+        case 0x59: de.lo = bc.lo; clock(); break; // LD E, C
+        case 0x5A: de.lo = de.hi; clock(); break; // LD E, D
+        case 0x5B: clock(); break; // LD E, E
+        case 0x5C: de.lo = hl.hi; clock(); break; // LD E, H
+        case 0x5D: de.lo = hl.lo; clock(); break; // LD E, L
+        case 0x5E: clock(); de.lo = read8(hl.r); clock(); break; // LD E, (HL)
         case 0x5F: de.lo = af.hi; break; // LD E, A
-
+        case 0x60: hl.hi = bc.hi; clock(); break; // LD H, B
+        case 0x61: hl.hi = bc.lo; clock(); break; // LD H, C
+        case 0x62: hl.hi = de.hi; clock(); break; // LD H, D
+        case 0x63: hl.hi = de.lo; clock(); break; // LD H, E
+        case 0x64: clock(); break; // LD H, H
+        case 0x65: hl.hi = hl.lo; clock(); break; // LD H, L
+        case 0x66: clock(); hl.hi = read8(hl.r); clock(); break; // LD H, (HL)
         case 0x67: hl.hi = af.hi; break; // LD H, A
-
+        case 0x68: hl.lo = bc.hi; clock(); break; // LD L, B
+        case 0x69: hl.lo = bc.lo; clock(); break; // LD L, C
+        case 0x6A: hl.lo = de.hi; clock(); break; // LD L, D
+        case 0x6B: hl.lo = de.lo; clock(); break; // LD L, E
+        case 0x6C: hl.lo = hl.hi; clock(); break; // LD L, H
+        case 0x6D: clock(); break; // LD L, L
+        case 0x6E: clock(); hl.lo = read8(hl.r); clock(); break; // LD L, (HL)
         case 0x6F: hl.lo = af.hi; break; // LD L, A
+        case 0x70: clock(); write8(hl.r, bc.hi); clock(); break; // LD (HL), B
+        case 0x71: clock(); write8(hl.r, bc.lo); clock(); break; // LD (HL), C
+        case 0x72: clock(); write8(hl.r, de.hi); clock(); break; // LD (HL), D
+        case 0x73: clock(); write8(hl.r, de.lo); clock(); break; // LD (HL), E
+        case 0x74: clock(); write8(hl.r, hl.hi); clock(); break; // LD (HL), H
+        case 0x75: clock(); write8(hl.r, hl.lo); clock(); break; // LD (HL), L
 
         case 0x77: clock(); write8(hl.r, af.hi); break; // LD (HL), A
         case 0x78: af.hi = bc.hi; break; // LD A, B
@@ -1025,6 +1068,19 @@ void gameboy::execute()
     }
 
     processInterrupts();
+}
+
+
+/**
+ * LD (HL), n
+ */
+void gameboy::LD_HL_N()
+{
+    clock();
+    u8 n = read8(pc++);
+    clock();
+    write8(hl.r, n);
+    clock();
 }
 
 
