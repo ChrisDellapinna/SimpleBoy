@@ -222,6 +222,7 @@ class gameboy
 
         bool init();
         void clock();
+        void clock_ppu_lcd();
         void processInterrupts();
         void execute();
         u8 read8(u16 addr);
@@ -279,7 +280,9 @@ class gameboy
         void ADD(u8 n);
         void ADC(u8 n);
         void SUB(u8 n);
-        //void SBC(u8 n);
+        void SBC(u8 n);
+        void SBC_HL();
+        void SBC_N();
         void AND(u8 n);
         void AND_HL8();
         void AND_N();
@@ -363,7 +366,7 @@ void gameboy::reset(u32 flag)
 
 
 /**
- *
+
 */
 bool gameboy::init()
 {
@@ -391,7 +394,7 @@ bool gameboy::init()
         io[IO_PPU_BGP] = 0xFC;
 
         io[IO_PPU_LY] = 146;
-        io[IO_PPU_STAT] = 1; //vblank
+        io[IO_PPU_STAT] = 0x81; //vblank
         io[IO_PPU_LCDC] = 0x80; // display on
     }
 
@@ -411,15 +414,17 @@ bool gameboy::init()
 void gameboy::clock()
 {
     clks += 4;
-    ppu_clks += 4;
+
+    // Clock the PPU/LCD, emulated pixel will be pushed out. This adds 4 to ppu_clks
+    clock_ppu_lcd();
 
     // check lcd/stat timing
-    ppu_clks %= CLOCK_GB_SCREENREFRESH; // keep clk count within [0, CLOCK_GB_SCREENREFRESH]
-
     if ((io[IO_PPU_LCDC] & 0x80) == 0) // Display is off
     {
         ppu_clks = 0;
         io[IO_PPU_STAT] &= 0xFC; // h-blank / display off (Cycle Accurate GameBoy Docs state mode = 0)
+
+        // TODO: Still perform LY/LYC comparison even though LCD off?
     }
     else
     {
@@ -556,6 +561,19 @@ void gameboy::clock()
         if (oam_dma_clks >= 162)
             oam_dma_active = false;
     }
+}
+
+
+/**
+ * Updates the LCD four clocks, adjust ppu_clks accordingly.
+ * Updates the ppu_clks four clocks and pushes out four clocks worth of pixels. Pixel pushing
+ * mechanism is based off of the ones present in the Ultimate Game Talk (33c3) and timing info
+ * presented in the Nitty Gritty GameBoy Cycle Timing doc.
+ */
+void gameboy::clock_ppu_lcd()
+{
+    ppu_clks += 4;
+    ppu_clks %= CLOCK_GB_SCREENREFRESH; // keep clk count within [0, CLOCK_GB_SCREENREFRESH]
 }
 
 
@@ -796,9 +814,13 @@ void gameboy::execute()
         case 0x4F: bc.lo = af.hi; break; // LD C, A
 
         case 0x57: de.hi = af.hi; break; // LD D, A
+
         case 0x5F: de.lo = af.hi; break; // LD E, A
+
         case 0x67: hl.hi = af.hi; break; // LD H, A
+
         case 0x6F: hl.lo = af.hi; break; // LD L, A
+
         case 0x77: clock(); write8(hl.r, af.hi); break; // LD (HL), A
         case 0x78: af.hi = bc.hi; break; // LD A, B
         case 0x79: af.hi = bc.lo; break; // LD A, C
@@ -830,7 +852,15 @@ void gameboy::execute()
         case 0x94: SUB(hl.hi); break; // SUB A, H
         case 0x95: SUB(hl.lo); break; // SUB A, L
         case 0x96: clock(); SUB(read8(hl.r)); break; // SUB A, (HL)
-
+        case 0x97: SUB(af.hi); break; // SUB A, A
+        case 0x98: SBC(bc.hi); break; // SBC A, B
+        case 0x99: SBC(bc.lo); break; // SBC A, C
+        case 0x9A: SBC(de.hi); break; // SBC A, D
+        case 0x9B: SBC(de.lo); break; // SBC A, E
+        case 0x9C: SBC(hl.hi); break; // SBC A, H
+        case 0x9D: SBC(hl.lo); break; // SBC A, L
+        case 0x9E: SBC_HL(); break; // SBC A, (HL)
+        case 0x9F: SBC(af.hi); break; // SBC A, A
         case 0xA0: AND(bc.hi); break; // AND B
         case 0xA1: AND(bc.lo); break; // AND C
         case 0xA2: AND(de.hi); break; // AND D
@@ -853,7 +883,7 @@ void gameboy::execute()
         case 0xB4: OR(hl.hi); break; // OR H
         case 0xB5: OR(hl.lo); break; // OR L
         case 0xB6: OR_HL8(); break; // OR (HL)
-
+        case 0xB7: OR(af.hi); break; // OR A
         case 0xB8: CP(bc.hi); break; // CP B
         case 0xB9: CP(bc.lo); break; // CP C
         case 0xBA: CP(de.hi); break; // CP D
@@ -954,6 +984,7 @@ void gameboy::execute()
         case 0xD0: RET(!isSet(FLAG_C)); break; // RET NC
         case 0xD1: POP(de.r); break; // POP DE
         case 0xD2: JP(!isSet(FLAG_C)); break; // JP NC, nn
+
         case 0xD4: CALL(!isSet(FLAG_C)); break; // CALL NC, nn
         case 0xD5: PUSH(de.r); break; // PUSH DE
         case 0xD6: clock(); SUB(read8(pc++)); break; // SUB n
@@ -962,6 +993,8 @@ void gameboy::execute()
         case 0xD9: RETI(); break; // RETI
         case 0xDA: JP(isSet(FLAG_C)); break; // JP C, nn
         case 0xDC: CALL(isSet(FLAG_C)); break; // CALL C, nn
+
+        case 0xDE: SBC_N(); break; // SBC n
         case 0xDF: RST(0x18); break; // RST 18
         case 0xE0: LDH_nA(); break; // LDH (n), A
         case 0xE1: POP(hl.r); break; // POP HL
@@ -969,6 +1002,7 @@ void gameboy::execute()
         case 0xE5: PUSH(hl.r); break; // PUSH HL
         case 0xE6: AND_N(); break; // AND n (#)
         case 0xE7: RST(0x20); break; // RST 20
+
         case 0xE9: JP_HL(); break; // JP (HL)
         case 0xEA: LD_nnA(); break; // LD (nn), A
         case 0xEE: clock(); XOR(read8(pc++)); break; // XOR n
@@ -980,6 +1014,7 @@ void gameboy::execute()
         case 0xF5: PUSH(af.r); break; // PUSH AF
         case 0xF6: OR_N(); break; // OR n (imm)
         case 0xF7: RST(0x30); break; // RST 30
+
         case 0xF9: LD_SPHL(); break;
         case 0xFA: LD_Ann(); break; // LD A, (nn)
         case 0xFB: EI(); break; // EI
@@ -1197,6 +1232,56 @@ void gameboy::SUB(u8 n)
         set(FLAG_Z);
     else
         reset(FLAG_Z);
+}
+
+
+/**
+ * SBC A, n
+ *
+ * @param[in] The value n to be subtracted from register A.
+ */
+void gameboy::SBC(u8 n)
+{
+    clock();
+    set(FLAG_N);
+    u8 c = (isSet(FLAG_C)) ? 1 : 0;
+
+    if ((af.hi & 0x0F) < ((n + c) & 0x0F))
+        set(FLAG_H);
+    else
+        reset(FLAG_H);
+
+    if (af.hi < (n + c))
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    af.hi -= (n + c);
+    
+    if (af.hi == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+}
+
+
+/**
+ * SBC A, (HL)
+ */
+void gameboy::SBC_HL()
+{
+    clock();
+    SBC(read8(hl.r));
+}
+
+
+/**
+ * SBC A, n
+ */
+void gameboy::SBC_N()
+{
+    clock();
+    SBC(read8(pc++));
 }
 
 
@@ -1867,7 +1952,7 @@ int main(int argc, char *argv[])
     }
 
 
-    /*SDL_Window *window = NULL;
+    SDL_Window *window = NULL;
     SDL_Surface *screen = NULL;
     SDL_Renderer* renderer = NULL;
     SDL_Rect r;
@@ -1890,11 +1975,7 @@ int main(int argc, char *argv[])
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     SDL_RenderClear(renderer);
-
-    r.x = 0;
-    r.y = 0;
-    r.w = 1;
-    r.h = 1;
+    
 
     for (int i = 0; i < 1500000; i++)
     {
@@ -1903,33 +1984,41 @@ int main(int argc, char *argv[])
 
     //SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 255, 255));
 
-    for (int x = 0; x < 2; x++) // tile's x coord ( * 8) in the background map
+    for (int x = 0; x < 32; x++) // tile's x coord ( * 8) in the background map
     {
-        for (int y = 0; y < 1; y++) // tile's y coord ( * 8) ...
+        for (int y = 0; y < 4; y++) // tile's y coord ( * 8) ...
         {
             for (int py = 0; py < 8; py++) // p from 0 ... 7 for each of the two bytes making up a ln of px data
             {
-                u8 pxlsb = gb.vram[0x800 + y * 32 * 16 + x * 32 + py * 2],
-                    pxmsb = gb.vram[0x800 + y * 32 * 16 + x * 32 + py * 2 + 1];
+                u8 pxlsb = gb.vram[0x0000 + y * 32 * 16 + x * 16 + py * 2],
+                    pxmsb = gb.vram[0x0000 + y * 32 * 16 + x * 16 + py * 2 + 1];
 
                 for (int px = 0; px < 8; px++) // relative x coord of the tile
                 {
-                    r.x = (x * 8 + px);
-                    r.y = (y * 8 + py);
+                    //SDL_RenderClear(renderer);
+
+                    
+                    //r.x = 4;//(x * 8 + px);
+                    //r.y = 4;//(y * 8 + py);
+                    //r.w = 5;
+                    //r.h = 5;
 
                     u8 col = (pxlsb >> (7 - px) & 1) | ((pxmsb >> (7 - px) & 1) << 1);
                     printf("%X ", col);
                     col <<= 6; // close enough..
 
                     SDL_SetRenderDrawColor(renderer, col, col, col, 255);
-                    SDL_RenderFillRect(renderer, &r);
-                    SDL_RenderPresent(renderer);
+                    if (SDL_RenderDrawPoint(renderer, (x * 8 + px), (y * 8 + py)) < 0)
+                        printf("\n\nSDL Error: %s", SDL_GetError());
+                    //SDL_RenderFillRect(renderer, &r);
+                    
                 }
                 printf("\n");
             }
             printf("\n");
         }
     }
+    SDL_RenderPresent(renderer);  // update screen
 
     for (int i = 0; i < 0x1800; i++)
     {
@@ -1939,23 +2028,29 @@ int main(int argc, char *argv[])
     //SDL_UpdateWindowSurface(window);
     SDL_RenderPresent(renderer);
 
-    SDL_Delay(10000);
-    SDL_Quit();*/
+    SDL_Delay(20000);
+    SDL_Quit();
 
     
 
-    for (int i = 0; i < 600000; i++)
+    /*for (int i = 0; i < 600000; i++)
     {
-
+        if (gb.pc == 0x63b)
+        {
+            while (true)
+            {
                 printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i, STAT: %X, LCDC: %X, LYC: %X, IF: %X, IE: %X",
                     gb.read8(gb.pc), gb.pc, gb.sp, gb.af.r, gb.bc.r, gb.de.r, gb.hl.r, gb.clks, gb.ppu_clks, gb.io[IO_PPU_LY], (gb.io[IO_PPU_STAT] & 3),
                     gb.io[IO_PPU_STAT], gb.io[IO_PPU_LCDC], gb.io[IO_PPU_LYC], gb.io[IO_INT_IF], gb.ier);
                 gb.execute();
                 std::cin.ignore(80, '\n');
+            }
+        }
+        gb.execute();
     }
 
     printf("\n\nEmulation finished. Hit Enter (Return) key to exit.\n");
-    std::cin.ignore(80, '\n');
+    std::cin.ignore(80, '\n');*/
 
     return 0;
 }
