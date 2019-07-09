@@ -305,6 +305,10 @@ class gameboy
         void CCF();
         void SCF();
 
+        void RLCA();
+        void RLA();
+        void RRCA();
+        void RRA();
         void SRL(u8& n);
         void SRL();
 
@@ -755,13 +759,14 @@ void gameboy::execute()
         case 0x04: INC(bc.hi); break; // INC B
         case 0x05: DEC(bc.hi); break; // DEC B
         case 0x06: clock(); bc.hi = read8(pc++); break; // LD B, n
-
+        case 0x07: RLCA(); break; // RLCA
         case 0x09: ADD_HL(bc.r); break; // ADD HL, BC
         case 0x0A: clock(); af.hi = read8(bc.r); break; // LD A, (BC)
         case 0x0B: DEC(bc.r); break; // DEC BC
         case 0x0C: INC(bc.lo); break; // INC C
         case 0x0D: DEC(bc.lo); break; // DEC C
         case 0x0E: clock(); bc.lo = read8(pc++); break; // LD C, n
+        case 0x0F: RRCA(); break; // RRCA
 
         case 0x11: LD(de.r); break; // LD DE, nn
         case 0x12: clock(); write8(de.r, af.hi); break; // LD (DE), A
@@ -769,7 +774,7 @@ void gameboy::execute()
         case 0x14: INC(de.hi); break; // INC D
         case 0x15: DEC(de.hi); break; // DEC D
         case 0x16: clock(); de.hi = read8(pc++); break; // LD D, n
-
+        case 0x17: RLA(); break; // RLA
         case 0x18: JR(); break; // JR n
         case 0x19: ADD_HL(de.r); break; // ADD HL, DE
         case 0x1A: clock(); af.hi = read8(de.r); break; // LD A, (DE)
@@ -777,7 +782,7 @@ void gameboy::execute()
         case 0x1C: INC(de.lo); break; // INC E
         case 0x1D: DEC(de.lo); break; // DEC E
         case 0x1E: clock(); de.lo = read8(pc++); break; // LD E, n
-
+        case 0x1F: RRA(); break; // RRA
         case 0x20: JR(!isSet(FLAG_Z)); break; // JR NZ
         case 0x21: LD(hl.r); break; // LD HL, nn
         case 0x22: clock(); write8(hl.r--, af.hi); break; // LD (HLI), A
@@ -948,7 +953,7 @@ void gameboy::execute()
         case 0xCA: JP(isSet(FLAG_Z)); break; // JP Z, nn
         case 0xCB:
         {
-            clock(); // clock for first opcode read
+            clock(); // clock for first opcode/prefix read
             // Out of convenience, we'll breakdown opcodes by encoding rather than as a huge switch
             u8 op = read8(pc++);
             switch (op >> 6)
@@ -1661,6 +1666,113 @@ void gameboy::CCF()
 void gameboy::SCF()
 {
     set(FLAG_C);
+    clock();
+}
+
+
+/**
+ * RLCA
+ */
+void gameboy::RLCA()
+{
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    u8 msb = ((af.hi & 0x80) != 0) ? 1 : 0;
+
+    if (msb == 1)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    af.hi <<= 1;
+    af.hi |= msb; 
+
+    if (af.hi == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    clock();
+}
+
+
+/**
+ * RLA
+ */
+void gameboy::RLA()
+{
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    u8 c = (isSet(FLAG_C)) ? 1 : 0;
+
+    if ((af.hi & 0x80) != 0)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    af.hi <<= 1;
+    af.hi |= c;
+
+    if (af.hi == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    clock();
+}
+
+
+/**
+ * RRCA
+ */
+void gameboy::RRCA()
+{
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    u8 lsb = ((af.hi & 1) != 0) ? 0x80 : 0;
+
+    if (lsb != 0)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    af.hi >>= 1;
+    af.hi |= lsb;
+
+    if (af.hi == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    clock();
+}
+
+
+/**
+ * RRA
+ */
+void gameboy::RRA()
+{
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    u8 c = (isSet(FLAG_C)) ? 0x80 : 0;
+    if ((af.hi & 1) != 0)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    af.hi >>= 1;
+    af.hi |= c;
+
+    if (af.hi == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
     clock();
 }
 
