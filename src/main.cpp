@@ -271,6 +271,7 @@ class gameboy
         void LD_HL_N();
         void LD(u16& n);
         void LD_SPHL();
+        void LD_HL_SP_N();
         void LDH_nA();
         void LDH_An();
         void LD_Ann();
@@ -885,6 +886,7 @@ void gameboy::execute()
         case 0x84: ADD(hl.hi); break; // ADD A, H
         case 0x85: ADD(hl.lo); break; // ADD A, L
         case 0x86: clock(); ADD(read8(hl.r)); break; // ADD A, (HL)
+        case 0x87: ADD(af.hi); break; // ADD A, A
         case 0x88: ADC(bc.hi); break; // ADC A, B
         case 0x89: ADC(bc.lo); break; // ADC A, C
         case 0x8A: ADC(de.hi); break; // ADC A, D
@@ -1040,6 +1042,7 @@ void gameboy::execute()
         case 0xD8: RET(isSet(FLAG_C)); break; // RET C
         case 0xD9: RETI(); break; // RETI
         case 0xDA: JP(isSet(FLAG_C)); break; // JP C, nn
+
         case 0xDC: CALL(isSet(FLAG_C)); break; // CALL C, nn
 
         case 0xDE: SBC_N(); break; // SBC n
@@ -1047,22 +1050,25 @@ void gameboy::execute()
         case 0xE0: LDH_nA(); break; // LDH (n), A
         case 0xE1: POP(hl.r); break; // POP HL
         case 0xE2: clock(); write8(0xFF00 + (u16)bc.lo, af.hi); break; // LD (C), A
+
         case 0xE5: PUSH(hl.r); break; // PUSH HL
         case 0xE6: AND_N(); break; // AND n (#)
         case 0xE7: RST(0x20); break; // RST 20
 
         case 0xE9: JP_HL(); break; // JP (HL)
         case 0xEA: LD_nnA(); break; // LD (nn), A
+
         case 0xEE: clock(); XOR(read8(pc++)); break; // XOR n
         case 0xEF: RST(0x28); break; // RST 28
         case 0xF0: LDH_An(); break; // LDH A, (n)
         case 0xF1: POP(af.r); break; // POP AF
         case 0xF2: clock(); af.hi = read8(pc++); break; // LD A, (C)
         case 0xF3: DI(); break; // DI
+
         case 0xF5: PUSH(af.r); break; // PUSH AF
         case 0xF6: OR_N(); break; // OR n (imm)
         case 0xF7: RST(0x30); break; // RST 30
-
+        case 0xF8: LD_HL_SP_N(); break; // LDHL SP, n
         case 0xF9: LD_SPHL(); break;
         case 0xFA: LD_Ann(); break; // LD A, (nn)
         case 0xFB: EI(); break; // EI
@@ -1113,6 +1119,34 @@ void gameboy::LD_SPHL()
 {
     clock();
     sp = hl.r;
+    clock();
+}
+
+
+/**
+ * LDHL SP, n 
+ */
+void gameboy::LD_HL_SP_N()
+{
+    clock();
+    s8 n = read8(pc++);
+
+    reset(FLAG_Z);
+    reset(FLAG_N);
+
+    if ((s32)(sp + n) > 0xFFFF)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    if ((sp & 0xFFF) + n > 0xFFF)
+        set(FLAG_H);
+    else
+        reset(FLAG_H);
+
+    hl.r = sp + n;
+
+    clock();
     clock();
 }
 
