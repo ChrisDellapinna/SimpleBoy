@@ -18,6 +18,10 @@
 #include <iostream>
 #include <fstream>
 
+#include <queue>
+#include <array>
+
+
 /**
  * Define several type aliases that will frequently be used. 
 */
@@ -111,10 +115,16 @@ typedef signed int s32;
 
 #define IO_CGB_SVBK     0x70
 
+#define PPU_IO_OFFSET   0x40
+
 
 #define CLOCK_GB 4194304
 #define CLOCK_CGB 8388608
 #define CLOCK_GB_SCREENREFRESH 70224
+#define CLOCK_GB_SCANLINE 456
+
+#define GB_LCD_XPIXELS 160
+#define GB_LCD_YPIXELS 144
 
 
 /**
@@ -146,7 +156,7 @@ class gameboy_cart
         void write8(u16 addr, u8 n);
 
     private:
-        u8 *rom;
+        u8 *rom = nullptr;
         u32 size = 0;
 };
 
@@ -212,6 +222,184 @@ void gameboy_cart::write8(u16 addr, u8 n)
 
 
 /**
+ *
+ */
+struct pxdata
+{
+    u8 r, g, b;
+};
+
+
+class gameboy_bus
+{
+    public:
+        u8 read8CPU(u16 addr);
+        u8 read8PPU(u16 addr);
+        u8 read8DMA(u16 addr);
+        void write8CPU(u16 addr, u8 n);
+        void write8PPU(u16 addr, u8 n);
+        void write8DMA(u16 addr, u8 n);
+
+    private:
+        // all the addressable memories go here
+        gameboy_cart cart;
+
+};
+
+
+/**
+ *
+ */
+class gameboy_ppu
+{
+    public:
+        void (*drawScanlineCallback)() = nullptr;
+
+        void clock();
+        u8 readvram(u16 addr);
+        u8 readoam(u16 addr);
+        u8 readio(u16 addr);
+        void writevram(u16 addr);
+        void writeoam(u16 addr);
+        void writeio(u16 addr);
+        u16 convertAddr(u16 addr);
+
+    private:
+        //gameboy_bus* bus;
+        u8 io[0x20]; // PPU IO covers $FF40 - $FF6F
+        u8 vram[0x2000], oam[0xA0];
+
+        u32 clks = 0;
+        u8 fetcherStep = 0, fetcherClksLeft = 0;
+        u8 spriteList[10];
+        u8 pxcount = 0;
+        std::array<u8, 8> fetchedTile, fetchedSprite;
+        std::queue<u8> pxfifo;
+        std::array<u8, GB_LCD_XPIXELS> scanline;
+
+        u16 x, y, bgMapCol, bgMapRow, bgMapAddr, bgDataAddr, bgMapOffset, bgDataOffset;
+
+
+        void fetchTile();
+        void fetchSprite();
+};
+
+
+/**
+ * Clocks the emulated PPU 2 cycles off main clock.
+ * This should (ideally) push 2 pixels while rendering LCD, perform one IO operation on VRAM/OAM
+ */
+void gameboy_ppu::clock()
+{
+    // two clocks
+    for (int i = 0; i < 2; i++)
+    {
+        if ((io[IO_PPU_LCDC - PPU_IO_OFFSET] & 0x80) != 0 && ()) //LCD is enabled && LY is in rendering range)
+        {
+            u32 clksRefresh = clks % CLOCK_GB_SCANLINE;
+
+            // Compile the list of sprites to render
+            if (clksRefresh == 4)
+            {
+
+            }
+            // Rendering
+            else if (clksRefresh >= 84 && pxcount < GB_LCD_XPIXELS)
+            {
+                // update the tile fetcher and pixel FIFO
+                // we'll do fetcher first so px data is ready for the FIFO before it is updated and renders
+                if (clksRefresh == 84) // Just started rendering process
+                {
+                    // We'll determine the tile in the bg map to start rendering and begin fetching data
+                    x = 0, y = io[IO_PPU_LY - PPU_IO_OFFSET]; // coords of first px to render (simplified for now)
+                    bgMapCol = x / 8, bgMapRow = y / 8; // col/row of tile in bg map
+                    bgMapAddr = (((io[IO_PPU_LCDC - PPU_IO_OFFSET] >> 3) & 1) == 0) ? 0x9800 : 0x9C00;
+                    bgMapOffset = bgMapRow * 32 + bgMapCol;
+
+                    fetchTile();
+                }
+                else
+                {
+                    // Continue rendering process as normal
+                    if (fetcherClksLeft == 0)
+                    {
+                        // Done fetching tile, place in FIFO (if room) then work on next one
+                        if (pxfifo.size() <= 8)
+                        {
+                            for (int j = 0; j < 8; j++)
+                                pxfifo.push(fetchedTile[j]);
+
+                            // fetch next tile
+                            x += 8; // not needed
+                            bgMapCol++;
+                            bgMapCol /= 32; // allows for wrap around of tile map
+                            bgMapOffset = bgMapRow * 32 + bgMapCol;
+
+                            fetchTile();
+                        }
+                    }
+                }
+
+                // and update the pixel FIFO
+                if (pxfifo.size() > 8)
+                {
+                    // More than 8 px in FIFO so we're able to push a px to screen
+                    scanline[pxcount++] = pxfifo.front();
+                    pxfifo.pop();
+
+                    // If done rendering to the LCD
+                    if (pxcount >= GB_LCD_XPIXELS)
+                    {
+                        while (!pxfifo.empty())
+                            pxfifo.pop();
+
+                        pxcount = 0; // not quite, gotta set the STAT mode to h-blank
+                        drawScanlineCallback();
+                    }
+                }
+
+                // update timing for fetcher
+                if (fetcherClksLeft != 0)
+                    fetcherClksLeft--;
+            }
+        }
+        
+        clks++;
+    }
+}
+
+
+/**
+ * Fetches the tile data referenced in the background map at (bgMapAddr + bgMapOffset).
+ * Six cycles are added to fetcherClksLeft to emulated the three reads from VRAM.
+ */
+void gameboy_ppu::fetchTile()
+{
+    u8 tileLSB, tileMSB;
+
+    if (((io[IO_PPU_LCDC - PPU_IO_OFFSET] >> 4) & 1) == 0) // bg data at $8800, signed tile number
+    {
+        s8 tileNum = bus->read8PPU(bgMapAddr + bgMapOffset);
+        tileLSB = bus->read8PPU(0x8800 + tileNum);
+        tileMSB = bus->read8PPU(0x8800 + tileNum + 1);
+
+    }
+    else // bg data at $8000, unsigned tile number
+    {
+        u8 tileNum = bus->read8PPU(bgMapAddr + bgMapOffset);
+        tileLSB = bus->read8PPU(0x8000 + tileNum);
+        tileMSB = bus->read8PPU(0x8800 + tileNum + 1);
+    }
+
+    // copy data to fetchedTile
+    for (int i = 7; i < 0; i--)
+        fetchedTile[i] = ((tileLSB >> i) & 1) | (((tileMSB >> i) & 1) << 1);
+
+    fetcherClksLeft += 6;
+}
+
+
+/**
  * Class representing the GameBoy emulator
  */
 class gameboy
@@ -249,6 +437,23 @@ class gameboy
         u32 clks = 0;
         u32 clks_int_enabled = 0;
         u32 ppu_clks = 0;
+
+        // ppu / drawing related
+        bool drawing = false;
+        u32 pxfifo = 0; // 2b per px * 16 px = 32b
+        u32 pxfifoPixelsStored = 0;
+        u16 fetchedTile = 0;
+        bool fetchedTileReady = false;
+        u32 currentPx = 0;
+        bool pxfifoFetcherPaused = false;
+        u16 pxfifoFetcherData = 0;
+        u16 pxfifoFetcherStep = 0;
+        u16 pxfifoFetcherClksLeft = 0;
+
+        const u16 ppuCurrentBGMap();
+        const u16 ppuCurrentBGData();
+        
+        gameboy_ppu ppu;
 
         // OAM DMA
         bool oam_dma_active = false;
@@ -573,13 +778,74 @@ void gameboy::clock()
 /**
  * Updates the LCD four clocks, adjust ppu_clks accordingly.
  * Updates the ppu_clks four clocks and pushes out four clocks worth of pixels. Pixel pushing
- * mechanism is based off of the ones present in the Ultimate Game Talk (33c3) and timing info
+ * mechanism is based off of the ones present in the Ultimate GameBoy Talk (33c3) and timing info
  * presented in the Nitty Gritty GameBoy Cycle Timing doc.
  */
 void gameboy::clock_ppu_lcd()
 {
+    if (drawing)
+    {
+        for (int i = 0; i < 4; i++) // four clocks worth of work
+        {
+            // If the fetcher needs to fetch a tile (or sprite), do that
+            if (!pxfifoFetcherPaused)
+            {
+                // Each 'step' of the fetcher's data accesses takes 2clks on the main 4mhz clock so
+                // we track how many clks have elapsed. When clksLeft = 0, ready for next access
+                if (pxfifoFetcherClksLeft == 0)
+                {
+                    // Grabbing the tile # from map
+                    if (pxfifoFectherStep == 0)
+                    {
+                        // Determine location of background tile map
+                        if ((io[IO_PPU_LCDC] & 8) != 0) // map is $9C00 - $9FFF
+                        {
+
+                        }
+                        else // map is $
+                        {
+
+                        }
+                    }
+                    // Grabbing first byte of tile data
+                    else if (pxfifoFetcherStep == 1)
+                    {
+
+                    }
+                    // Grabbing second byte of tile data
+                    else
+                    {
+
+                    }
+                }
+                else
+                    pxfifoFetcherClksLeft--;
+            }
+
+            // If the pixel FIFO has enough data in it, push a pixel to the screen
+            if (pxfifoPixelsStored > 8)
+            {
+                // More than 8px stored, ready to push out a pixel
+                pushPx(pxfifo & 3);
+                pxfifo >>= 2;
+                pxfifoPixelsStored--;
+
+                // Pixel FIFO needs more tile data before next px push and said data is ready/fetcher is paused
+                if (pxfifoPixelsStored == 8 && pxfifoFetcherPaused)
+                {
+                    // The fetcher has completed fetching the next tile, copy it onto the end of fifo
+                    pxfifo |= (pxfifoFetcherData << 16);
+                    pxfifoFetcherPaused = false;
+                }
+            }
+        }
+    }
+
     ppu_clks += 4;
     ppu_clks %= CLOCK_GB_SCREENREFRESH; // keep clk count within [0, CLOCK_GB_SCREENREFRESH]
+
+    if (ppu_clks == 84)
+        drawing = true;
 }
 
 
@@ -592,7 +858,7 @@ void gameboy::processInterrupts()
     if (ime == 1) // interrupts enabled
     {
         u8 irqAndEnabled = io[IO_INT_IF] & ier;
-        if ((irqAndEnabled) != 0) // an interrupt(s) are enabled and requesting to be triggered
+        if ((irqAndEnabled) != 0) // an interrupt(s) is enabled and requesting to be triggered
         {
             // Note this is NOT accurate emulation of how the GB handles and processes
             // interrupts, particularly from a timing perspective
@@ -743,12 +1009,12 @@ void gameboy::irq(u8 interruptPos)
 /**
  * Executes the next instruction pointed to by the program counter.
  * It is assumed (and required) that all clock'ing is performed within the emulated
- * instructions.
+ * instructions with the exception of CB-prefixed instructions (the first clock is 
+ * performed before the second opcode is fetched).
  *
 */
 void gameboy::execute()
 {
-    // TODO: LD r1, r2; JR nn/cc nn; 
     u8 op = read8(pc++);
 
     switch (op)
@@ -918,6 +1184,7 @@ void gameboy::execute()
         case 0xA4: AND(hl.hi); break; // AND H
         case 0xA5: AND(hl.lo); break; // AND L
         case 0xA6: AND_HL8(); break; // AND (HL)
+        case 0xA7: AND(af.hi); break; // AND A
         case 0xA8: XOR(bc.hi); break; // XOR B
         case 0xA9: XOR(bc.lo); break; // XOR C
         case 0xAA: XOR(de.hi); break; // XOR D
