@@ -233,6 +233,8 @@ struct pxdata
 class gameboy_bus
 {
     public:
+        gameboy_bus();
+
         u8 read8CPU(u16 addr);
         u8 read8PPU(u16 addr);
         u8 read8DMA(u16 addr);
@@ -240,10 +242,21 @@ class gameboy_bus
         void write8PPU(u16 addr, u8 n);
         void write8DMA(u16 addr, u8 n);
 
+        u8 ime = 1;
+
     private:
         // all the addressable memories go here
         gameboy_cart cart;
 
+        // Assorted emulated memory
+        u8 vram[0x2000];
+        u8 extram[0x2000];
+        u8 wram[0x2000];
+        u8 oam[0xA0];
+        u8 hram[0x7F];
+        u8 io[0x80];
+        u8 ier;
+        //u8 ime = 1;
 };
 
 
@@ -255,17 +268,11 @@ class gameboy_ppu
     public:
         void (*drawScanlineCallback)() = nullptr;
 
+        void setBus(gameboy_bus* b);
         void clock();
-        u8 readvram(u16 addr);
-        u8 readoam(u16 addr);
-        u8 readio(u16 addr);
-        void writevram(u16 addr);
-        void writeoam(u16 addr);
-        void writeio(u16 addr);
-        u16 convertAddr(u16 addr);
 
     private:
-        //gameboy_bus* bus;
+        gameboy_bus* bus;
         u8 io[0x20]; // PPU IO covers $FF40 - $FF6F
         u8 vram[0x2000], oam[0xA0];
 
@@ -286,6 +293,15 @@ class gameboy_ppu
 
 
 /**
+ * Simply sets bus to b.
+ */
+void gameboy_ppu::setBus(gameboy_bus* b)
+{
+    bus = b;
+}
+
+
+/**
  * Clocks the emulated PPU 2 cycles off main clock.
  * This should (ideally) push 2 pixels while rendering LCD, perform one IO operation on VRAM/OAM
  */
@@ -294,7 +310,113 @@ void gameboy_ppu::clock()
     // two clocks
     for (int i = 0; i < 2; i++)
     {
-        if ((io[IO_PPU_LCDC - PPU_IO_OFFSET] & 0x80) != 0 && ()) //LCD is enabled && LY is in rendering range)
+        /*
+        // check lcd/stat timing
+    if ((io[IO_PPU_LCDC] & 0x80) == 0) // Display is off
+    {
+        ppu_clks = 0;
+        io[IO_PPU_STAT] &= 0xFC; // h-blank / display off (Cycle Accurate GameBoy Docs state mode = 0)
+
+        // TODO: Still perform LY/LYC comparison even though LCD off?
+    }
+    else
+    {
+        // display on, do normal ppu clocking
+        if (ppu_clks % 456 == 0) // If we just moved onto the next line/LY
+        {
+            if (io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 0x03) == 1) // stat=vblank, on line 153
+                io[IO_PPU_STAT] &= 0xFC; // set stat to h-blank (0), leave ly as-is for ln 0
+                // POTENTIALLY TRIGGER STAT IRQ HERE?????
+            else
+                io[IO_PPU_LY]++;
+
+            // LYC Coincidence bit of STAT is always reset on this clock, except when LY=0
+            if (io[IO_PPU_LY] != 0)
+                io[IO_PPU_STAT] &= 0xFB;
+            else
+                (io[IO_PPU_LYC] == 0) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
+        }
+        else
+        {
+            //
+            if (ppu_clks % 456 == 4)
+            {
+                if (io[IO_PPU_LY] == 153)  // becomes ly=0, vblank
+                    io[IO_PPU_LY] = 0;
+                else if (io[IO_PPU_LY] <= 143) // standard display line, stat=oam search (2)
+                {
+                    io[IO_PPU_STAT] &= 0xFC; // stat should already =0, probably not needed
+                    io[IO_PPU_STAT] |= 2;
+
+                    // Trigger STAT IRQ if enabled in STAT
+                    if ((io[IO_PPU_STAT] & 0x20) != 0)
+                        irq(INT_STAT);
+                }
+                else if (io[IO_PPU_LY] == 144) // start of vblank
+                {
+                    io[IO_PPU_STAT] &= 0xFC;
+                    io[IO_PPU_STAT] |= 1; // vblank
+                    irq(INT_VBLANK);
+
+                    // Trigger STAT IRQ if enabled in STAT
+                    if ((io[IO_PPU_STAT] & 0x10) != 0)
+                        irq(INT_STAT);
+                }
+
+            }
+            else if (ppu_clks % 456 == 84 && (io[IO_PPU_STAT] & 3) == 2) // going from oam -> lcd transfer mode
+            {
+                io[IO_PPU_STAT]++; // stat=3 (lcd transfer)
+            }
+            else if (ppu_clks % 456 == 252 && (io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
+            {
+                // THE TIMING FOR THIS IS WRONG (NEED EXACT PPU TIMING)
+                io[IO_PPU_STAT] &= 0xFC;
+
+                // Trigger STAT IRQ if enabled
+                if ((io[IO_PPU_STAT] & 8) != 0)
+                    irq(INT_STAT);
+            }
+
+            // Perform the LY/LYC comparison, special case for line 153 (clk 4 compares LYC to 153, clk 8 is always flag reset)
+            if (io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 1)
+            {
+                if ((ppu_clks % 456) == 4) // special case, LYC compared to 153 not LY's value of 0
+                    (io[IO_PPU_LYC] == 153) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
+                else if ((ppu_clks % 456) == 8) // special case, coincidence bit is always reset
+                    io[IO_PPU_STAT] &= 0xFB;
+                else // otherwise we compare LYC to LY (=0 in this case) as usual
+                    (io[IO_PPU_LYC] == 0) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
+            }
+            else
+                (io[IO_PPU_LY] == io[IO_PPU_LYC]) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
+
+            // Perform a STAT IRQ if coincidence bit set, coincidence interrupt enabled in STAT, etc
+            if ((ppu_clks % 456) == 4)
+            {
+                if (!(io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 2)) // not on line 0
+                {
+                    if ((io[IO_PPU_STAT] & 4) != 0) // coincidence bit set
+                    {
+                        if ((io[IO_PPU_STAT] & 0x40) != 0) // STAT IRQ on LY=LYC set
+                            irq(INT_STAT);
+                    }
+                }
+            }
+            // special case, on line 153, irq possibly triggered at clks=12 if LY=LYC=0
+            else if ((ppu_clks % 456) == 12 && io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 1)
+            {
+                if ((io[IO_PPU_STAT] & 4) != 0) // coincidence bit set
+                {
+                    if ((io[IO_PPU_STAT] & 0x40) != 0) // STAT IRQ on LY=LYC set
+                        irq(INT_STAT);
+                }
+            }
+        } 
+        */
+
+
+        if ((io[IO_PPU_LCDC - PPU_IO_OFFSET] & 0x80) != 0) // && ()) //LCD is enabled && LY is in rendering range)
         {
             u32 clksRefresh = clks % CLOCK_GB_SCANLINE;
 
@@ -371,7 +493,7 @@ void gameboy_ppu::clock()
 
 /**
  * Fetches the tile data referenced in the background map at (bgMapAddr + bgMapOffset).
- * Six cycles are added to fetcherClksLeft to emulated the three reads from VRAM.
+ * Six cycles are added to fetcherClksLeft to emulate the three reads from VRAM.
  */
 void gameboy_ppu::fetchTile()
 {
@@ -400,17 +522,28 @@ void gameboy_ppu::fetchTile()
 
 
 /**
- * Class representing the GameBoy emulator
+ * Fetches the sprite data from.... (TODO) 
  */
-class gameboy
+void gameboy_ppu::fetchSprite()
+{
+
+}
+
+
+/**
+ * Class representing the GameBoy CPU
+ */
+class gameboy_cpu
 {
     public:
-        gameboy() {}
-        ~gameboy() {}
+        //gameboy_cpu() {}
+        gameboy_cpu(gameboy_bus* b) : bus(b) {}
+        ~gameboy_cpu() {}
 
         bool init();
+        void setBus(gameboy_bus* b);
         void clock();
-        void clock_ppu_lcd();
+        //void clock_ppu_lcd();
         void processInterrupts();
         void execute();
         u8 read8(u16 addr);
@@ -424,21 +557,23 @@ class gameboy
         void reset(u32 flag);
 
     //private:
-        gameboy_cart cart;
+        //gameboy_cart cart;
+        //gameboy_ppu ppu;
+        gameboy_bus* bus;
 
         reg af, bc, de, hl;
         u16 pc, sp;
 
-        u8 ime = 1;
+        //u8 ime = 1;
 
         bool bootromLoaded = false;
 
         // Clock tracking related
         u32 clks = 0;
         u32 clks_int_enabled = 0;
-        u32 ppu_clks = 0;
+        //u32 ppu_clks = 0;
 
-        // ppu / drawing related
+        /*// ppu / drawing related
         bool drawing = false;
         u32 pxfifo = 0; // 2b per px * 16 px = 32b
         u32 pxfifoPixelsStored = 0;
@@ -451,9 +586,9 @@ class gameboy
         u16 pxfifoFetcherClksLeft = 0;
 
         const u16 ppuCurrentBGMap();
-        const u16 ppuCurrentBGData();
+        const u16 ppuCurrentBGData();*/
         
-        gameboy_ppu ppu;
+        
 
         // OAM DMA
         bool oam_dma_active = false;
@@ -463,13 +598,13 @@ class gameboy
 
         // Assorted emulated memory
         //u8 rom[0x8000];
-        u8 vram[0x2000];
+        /*u8 vram[0x2000];
         u8 extram[0x2000];
         u8 wram[0x2000];
         u8 oam[0xA0];
         u8 hram[0x7F];
         u8 io[0x80];
-        u8 ier;
+        u8 ier;*/
 
         // Instruction set functions
         //void LD
@@ -548,7 +683,7 @@ class gameboy
  * @param[in] The position of the desired flag in F (where 0 is least significant bit).
  * @returns true if the flag shifted out is set, false otherwise.
 */
-bool gameboy::isSet(u32 flag)
+bool gameboy_cpu::isSet(u32 flag)
 {
     return ((af.lo >> flag) & 1) == 1;
 }
@@ -559,7 +694,7 @@ bool gameboy::isSet(u32 flag)
  *
  * @param[in] The position of the desired flag in F (where 0 is least significant bit).
 */
-void gameboy::set(u32 flag)
+void gameboy_cpu::set(u32 flag)
 {
     af.lo |= (1 << flag);
 }
@@ -570,20 +705,28 @@ void gameboy::set(u32 flag)
  *
  * @param[in] The position of the desired flag in F (where 0 is least significant bit).
 */
-void gameboy::reset(u32 flag)
+void gameboy_cpu::reset(u32 flag)
 {
     af.lo &= (0xFF ^ (1 << flag));
 }
 
 
 /**
+ * gameboy_cpu constructor with bus specified.
+ *
+ * @param[inout] Pointer to gameboy_bus to be used by this gameboy_cpu.
+ */
+/*gameboy_cpu::gameboy_cpu(gameboy_bus* b)
+{
+    bus = b;
+}*/
+
+
+/**
 
 */
-bool gameboy::init()
+bool gameboy_cpu::init()
 {
-    if (!cart.load("test.gb"))
-        return false;
-
     if (bootromLoaded)
     {
         printf("\nBoot ROM specified.");
@@ -597,7 +740,7 @@ bool gameboy::init()
         de.r = 0x00D8;
         hl.r = 0x014D;
         
-        ier = 0;
+        /*ier = 0;
 
         io[IO_PPU_SCY] = 0;
         io[IO_PPU_SCX] = 0;
@@ -606,12 +749,20 @@ bool gameboy::init()
 
         io[IO_PPU_LY] = 146;
         io[IO_PPU_STAT] = 0x81; //vblank
-        io[IO_PPU_LCDC] = 0x80; // display on
+        io[IO_PPU_LCDC] = 0x80; // display on*/
     }
 
     return true;
 }
 
+
+/**
+ * Simply sets bus = b
+ */
+void gameboy_cpu::setBus(gameboy_bus* b)
+{
+    bus = b;
+}
 
 /**
  * Clocks the emulated system four system (one machine) cycles.
@@ -622,12 +773,12 @@ bool gameboy::init()
  * OAM DMA: if a DMA has been requested, oam_dma_active must = true, oam_dma_clks must = 0
  * 
  */
-void gameboy::clock()
+void gameboy_cpu::clock()
 {
     clks += 4;
 
     // Clock the PPU/LCD, emulated pixel will be pushed out. This adds 4 to ppu_clks
-    clock_ppu_lcd();
+    /*clock_ppu_lcd();
 
     // check lcd/stat timing
     if ((io[IO_PPU_LCDC] & 0x80) == 0) // Display is off
@@ -731,7 +882,7 @@ void gameboy::clock()
                 }
             }
         } 
-    }
+    }*/
 
     // process any pending OAM DMA
     // TEST THIS! Not super confident in this. Might have an off by one error (timing).
@@ -742,28 +893,42 @@ void gameboy::clock()
             // Currently just implement the DMA as a one time mem copy.
             // Not sure if this is accurate enough, need more info on bus conflicts
             // and what can and cannot be read by CPU during DMA
-            
-            if (io[IO_PPU_DMA] < 0x80) // ROM
+
+            u8 dmaSrc = bus->read8DMA(0xFF46);
+
+            if (dmaSrc >= 0xF2) // Supposed cut off for OAM DMA src's (CONFIRM THIS!)
+            {
+                printf("\nOAM DMA req'd is invalid, $FF46: %X", dmaSrc);
+                oam_dma_active = false;
+            }
+            else
+            {
+                for (int i = 0; i < 0xA0; i++)
+                    // $FE00 = OAM start
+                    bus->write8DMA(0xFE00 + i, (dmaSrc << 8) + i);
+            }
+
+            /*if (dmaSrc < 0x80) // ROM
             {
                 for (int i = 0; i < 0xA0; i++)
                 {
                     oam[i] = cart.read8((io[IO_PPU_DMA] << 8) + i);
                 }
             }
-            else if (io[IO_PPU_DMA] < 0xA0) // VRAM
+            else if (dmaSrc < 0xA0) // VRAM
                 memcpy(oam, (vram + ((io[IO_PPU_DMA] - 0x80) << 8)), 0xA0);
-            else if (io[IO_PPU_DMA] < 0xC0) // External RAM
+            else if (dmaSrc < 0xC0) // External RAM
                 printf("\nOAM DMA from Ext RAM not implemented!");
-            else if (io[IO_PPU_DMA] < 0xE0) // WRAM
+            else if (dmaSrc < 0xE0) // WRAM
                 memcpy(oam, (wram + ((io[IO_PPU_DMA] - 0xC0) << 8)), 0xA0);
-            else if (io[IO_PPU_DMA] < 0xF2) // WRAM (mirror); confirm this is max valid OAM value
+            else if (dmaSrc < 0xF2) // WRAM (mirror); confirm this is max valid OAM value
                 memcpy(oam, (wram + ((io[IO_PPU_DMA] - 0xE0) << 8)), 0xA0);
             else
             {
                 // Bad DMA address specified, cancel the DMA?
-                printf("\nOAM DMA req'd is invalid, $FF46: %X", io[IO_PPU_DMA]);
+                printf("\nOAM DMA req'd is invalid, $FF46: %X", dmaSrc);
                 oam_dma_active = false;
-            }
+            }*/
         }
 
         oam_dma_clks++;
@@ -781,7 +946,7 @@ void gameboy::clock()
  * mechanism is based off of the ones present in the Ultimate GameBoy Talk (33c3) and timing info
  * presented in the Nitty Gritty GameBoy Cycle Timing doc.
  */
-void gameboy::clock_ppu_lcd()
+/*void gameboy_cpu::clock_ppu_lcd()
 {
     if (drawing)
     {
@@ -846,49 +1011,55 @@ void gameboy::clock_ppu_lcd()
 
     if (ppu_clks == 84)
         drawing = true;
-}
+}*/
 
 
 /**
  * Checks for any pending interrupts and triggers them if enabled.
  * This "check" is performed after an instruction has finished executing.
  */
-void gameboy::processInterrupts()
+void gameboy_cpu::processInterrupts()
 {
-    if (ime == 1) // interrupts enabled
+    if (bus->ime == 1) // interrupts enabled
     {
-        u8 irqAndEnabled = io[IO_INT_IF] & ier;
+        u8 ier = bus->read8CPU(0xFFFF), iflag = bus->read8CPU(0xFF0F);
+        u8 irqAndEnabled = ier & iflag;//io[IO_INT_IF] & ier;
+
         if ((irqAndEnabled) != 0) // an interrupt(s) is enabled and requesting to be triggered
         {
             // Note this is NOT accurate emulation of how the GB handles and processes
             // interrupts, particularly from a timing perspective
             u16 vector = 0;
-            ime = 0; // disable any further interrupts
+            bus->ime = 0; // disable any further interrupts
 
             if (((irqAndEnabled >> INT_VBLANK) & 1) == 1)
             {
                 vector = 0x0040;
-                io[IO_INT_IF] ^= (1 << INT_VBLANK);
+                bus->write8CPU(0xFF0F, iflag ^= (1 << INT_VBLANK));
             }
             else if (((irqAndEnabled >> INT_STAT) & 1) == 1)
             {
                 vector = 0x0048;
-                io[IO_INT_IF] ^= (1 << INT_STAT);
+                bus->write8CPU(0xFF0F, iflag ^= (1 << INT_STAT));
+                //io[IO_INT_IF] ^= (1 << INT_STAT);
             }
             else if (((irqAndEnabled >> INT_TIMER) & 1) == 1)
             {
                 vector = 0x0050;
-                io[IO_INT_IF] ^= (1 << INT_TIMER);
+                bus->write8CPU(0xFF0F, iflag ^= (1 << INT_TIMER));
+                //io[IO_INT_IF] ^= (1 << INT_TIMER);
             }
             else if (((irqAndEnabled >> INT_SERIAL) & 1) == 1)
             {
                 vector = 0x0058;
-                io[IO_INT_IF] ^= (1 << INT_SERIAL);
+                bus->write8CPU(0xFF0F, iflag ^= (1 << INT_SERIAL));
+                //io[IO_INT_IF] ^= (1 << INT_SERIAL);
             }
             else // INT_JOYPAD
             {
                 vector = 0x0060;
-                io[IO_INT_IF] ^= (1 << INT_JOYPAD);
+                bus->write8CPU(0xFF0F, iflag ^= (1 << INT_JOYPAD));
+                //io[IO_INT_IF] ^= (1 << INT_JOYPAD);
             }
 
             // Push current pc to stack then jump
@@ -901,14 +1072,16 @@ void gameboy::processInterrupts()
 
 
 /**
- * Reads the byte addressed by addr in the gameboy's emulated memory map.
+ * Reads the byte addressed by addr in the gameboy_cpu's emulated memory map.
  *
- * @param[in] Address in gameboy memory map to be read from.
+ * @param[in] Address in gameboy_cpu memory map to be read from.
  * @returns The byte read.
  */
-u8 gameboy::read8(u16 addr)
+u8 gameboy_cpu::read8(u16 addr)
 {
-    if (addr < 0x8000) // ROM
+    return bus->read8CPU(addr);
+
+    /*if (addr < 0x8000) // ROM
         return cart.read8(addr);
     else if (addr < 0xA000) // VRAM
         return vram[addr - 0x8000];
@@ -930,17 +1103,19 @@ u8 gameboy::read8(u16 addr)
     else if (addr < 0xFFFF) // HRAM
         return hram[addr - 0xFF80];
     else
-        return ier; // Interrupt enable register
+        return ier; // Interrupt enable register*/
 }
 
 
 /**
- * Writes a byte n to address addr in gameboy's emulated memory map.
+ * Writes a byte n to address addr in gameboy_cpu's emulated memory map.
  *
  */
-void gameboy::write8(u16 addr, u8 n)
+void gameboy_cpu::write8(u16 addr, u8 n)
 {
-    if (addr < 0x8000) // ROM
+    bus->write8CPU(addr, n);
+
+    /*if (addr < 0x8000) // ROM
         cart.write8(addr, n);
     else if (addr < 0xA000) // VRAM
     {
@@ -991,7 +1166,7 @@ void gameboy::write8(u16 addr, u8 n)
     else if (addr < 0xFFFF) // HRAM
         hram[addr - 0xFF80] = n;
     else
-        ier = n;
+        ier = n;*/
 }
 
 
@@ -1000,9 +1175,10 @@ void gameboy::write8(u16 addr, u8 n)
  *
  * @param[in] Position of the flag to set in IF.
  */
-void gameboy::irq(u8 interruptPos)
+void gameboy_cpu::irq(u8 interruptPos)
 {
-    io[IO_INT_IF] |= (1 << interruptPos);
+    bus->write8CPU(0xFF0F, bus->read8CPU(0xFF0F) | (1 << interruptPos));
+    //io[IO_INT_IF] |= (1 << interruptPos);
 }
 
 
@@ -1013,7 +1189,7 @@ void gameboy::irq(u8 interruptPos)
  * performed before the second opcode is fetched).
  *
 */
-void gameboy::execute()
+void gameboy_cpu::execute()
 {
     u8 op = read8(pc++);
 
@@ -1352,7 +1528,7 @@ void gameboy::execute()
 /**
  * LD (HL), n
  */
-void gameboy::LD_HL_N()
+void gameboy_cpu::LD_HL_N()
 {
     clock();
     u8 n = read8(pc++);
@@ -1367,7 +1543,7 @@ void gameboy::LD_HL_N()
  *
  * @param[out] The 16b register to be loaded with the immediate value.
  */
-void gameboy::LD(u16& n)
+void gameboy_cpu::LD(u16& n)
 {
     u16 nn = 0;
     clock();
@@ -1382,7 +1558,7 @@ void gameboy::LD(u16& n)
 /**
  * LD SP,HL
  */
-void gameboy::LD_SPHL()
+void gameboy_cpu::LD_SPHL()
 {
     clock();
     sp = hl.r;
@@ -1393,7 +1569,7 @@ void gameboy::LD_SPHL()
 /**
  * LDHL SP, n 
  */
-void gameboy::LD_HL_SP_N()
+void gameboy_cpu::LD_HL_SP_N()
 {
     clock();
     s8 n = read8(pc++);
@@ -1421,7 +1597,7 @@ void gameboy::LD_HL_SP_N()
 /**
  * LDH (n),A
  */
-void gameboy::LDH_nA()
+void gameboy_cpu::LDH_nA()
 {
     clock();
     u8 n = read8(pc++);
@@ -1434,7 +1610,7 @@ void gameboy::LDH_nA()
 /**
  * LDH A,(n)
  */
-void gameboy::LDH_An()
+void gameboy_cpu::LDH_An()
 {
     clock();
     u8 n = read8(pc++);
@@ -1447,7 +1623,7 @@ void gameboy::LDH_An()
 /**
  * LD A,(nn)
  */
-void gameboy::LD_Ann()
+void gameboy_cpu::LD_Ann()
 {
     u16 addr = 0;
     clock();
@@ -1463,7 +1639,7 @@ void gameboy::LD_Ann()
 /**
  * LD (nn),A
  */
-void gameboy::LD_nnA()
+void gameboy_cpu::LD_nnA()
 {
     u16 addr = 0;
     clock();
@@ -1481,7 +1657,7 @@ void gameboy::LD_nnA()
  *
  * @param[in] The regsiter nn to be pushed onto the stack.
  */
-void gameboy::PUSH(u16& nn)
+void gameboy_cpu::PUSH(u16& nn)
 {
     clock();
     clock(); // delay
@@ -1497,7 +1673,7 @@ void gameboy::PUSH(u16& nn)
  *
  * @param[out] The register nn to store the value popped off the stack.
  */
-void gameboy::POP(u16& nn)
+void gameboy_cpu::POP(u16& nn)
 {
     clock();
     nn = 0;
@@ -1513,7 +1689,7 @@ void gameboy::POP(u16& nn)
  *
  * @param[in] The value n to be added to register A.
 */
-void gameboy::ADD(u8 n)
+void gameboy_cpu::ADD(u8 n)
 {
     clock(); 
     reset(FLAG_N);
@@ -1542,7 +1718,7 @@ void gameboy::ADD(u8 n)
  *
  * @param[in] The value n to be added to register A.
 */
-void gameboy::ADC(u8 n)
+void gameboy_cpu::ADC(u8 n)
 {
     clock();
     u8 c = (isSet(FLAG_C) ? 1 : 0);
@@ -1573,7 +1749,7 @@ void gameboy::ADC(u8 n)
  *
  * @param[in] The value n to be subtracted from register A.
  */
-void gameboy::SUB(u8 n)
+void gameboy_cpu::SUB(u8 n)
 {
     clock();
     set(FLAG_N);
@@ -1602,7 +1778,7 @@ void gameboy::SUB(u8 n)
  *
  * @param[in] The value n to be subtracted from register A.
  */
-void gameboy::SBC(u8 n)
+void gameboy_cpu::SBC(u8 n)
 {
     clock();
     set(FLAG_N);
@@ -1630,7 +1806,7 @@ void gameboy::SBC(u8 n)
 /**
  * SBC A, (HL)
  */
-void gameboy::SBC_HL()
+void gameboy_cpu::SBC_HL()
 {
     clock();
     SBC(read8(hl.r));
@@ -1640,7 +1816,7 @@ void gameboy::SBC_HL()
 /**
  * SBC A, n
  */
-void gameboy::SBC_N()
+void gameboy_cpu::SBC_N()
 {
     clock();
     SBC(read8(pc++));
@@ -1652,7 +1828,7 @@ void gameboy::SBC_N()
  *
  * @param[in] The value n to be AND'd to register A.
  */
-void gameboy::AND(u8 n)
+void gameboy_cpu::AND(u8 n)
 {
     clock();
     reset(FLAG_N);
@@ -1671,7 +1847,7 @@ void gameboy::AND(u8 n)
 /**
  * AND (HL)
  */
-void gameboy::AND_HL8()
+void gameboy_cpu::AND_HL8()
 {
     clock();
     AND(read8(hl.r));
@@ -1681,7 +1857,7 @@ void gameboy::AND_HL8()
 /**
  * AND n (#, imm)
  */
-void gameboy::AND_N()
+void gameboy_cpu::AND_N()
 {
     clock();
     AND(read8(pc++));
@@ -1693,7 +1869,7 @@ void gameboy::AND_N()
  *
  * @param[in] The value n to be OR'd to register A.
  */
-void gameboy::OR(u8 n)
+void gameboy_cpu::OR(u8 n)
 {
     clock();
     reset(FLAG_N);
@@ -1712,7 +1888,7 @@ void gameboy::OR(u8 n)
 /**
  * OR (HL)
  */
-void gameboy::OR_HL8()
+void gameboy_cpu::OR_HL8()
 {
     clock();
     OR(read8(hl.r));
@@ -1722,7 +1898,7 @@ void gameboy::OR_HL8()
 /**
  * OR n (#, imm)
  */
-void gameboy::OR_N()
+void gameboy_cpu::OR_N()
 {
     clock();
     OR(read8(pc++));
@@ -1734,7 +1910,7 @@ void gameboy::OR_N()
  *
  * @param[in] The value n to be XOR'd to register A.
  */
-void gameboy::XOR(u8 n)
+void gameboy_cpu::XOR(u8 n)
 {
     clock();
     reset(FLAG_N);
@@ -1755,7 +1931,7 @@ void gameboy::XOR(u8 n)
  *
  * @param[in] The value n to be compared to register A.
  */
-void gameboy::CP(u8 n)
+void gameboy_cpu::CP(u8 n)
 {
     clock();
     set(FLAG_N);
@@ -1782,7 +1958,7 @@ void gameboy::CP(u8 n)
  *
  * @param[inout] The register n to be incremented 
  */
-void gameboy::INC(u8& n)
+void gameboy_cpu::INC(u8& n)
 {
     clock();
     reset(FLAG_N);
@@ -1807,7 +1983,7 @@ void gameboy::INC(u8& n)
  * performed within the member function rather than as part of the execute
  * member function as it is usually performed.
  */
-void gameboy::INC_HL8()
+void gameboy_cpu::INC_HL8()
 {
     clock();  // opcode fetch and processing
     u8 n = read8(hl.r);
@@ -1836,7 +2012,7 @@ void gameboy::INC_HL8()
  *
  * @param[inout] 16b register to increment.
  */
-void gameboy::INC(u16& nn)
+void gameboy_cpu::INC(u16& nn)
 {
     nn++;
     clock();  // as no memory is effected, doesn't really matter when we clock
@@ -1849,7 +2025,7 @@ void gameboy::INC(u16& nn)
  *
  * @param[inout] 8b register to decrement.
  */
-void gameboy::DEC(u8& n)
+void gameboy_cpu::DEC(u8& n)
 {
     set(FLAG_N);
 
@@ -1872,7 +2048,7 @@ void gameboy::DEC(u8& n)
 /**
  * DEC (HL)
  */
-void gameboy::DEC_HL8()
+void gameboy_cpu::DEC_HL8()
 {
     clock();
 
@@ -1902,7 +2078,7 @@ void gameboy::DEC_HL8()
  *
  * @param[inout] 16b register to decrement.
  */
-void gameboy::DEC(u16& nn)
+void gameboy_cpu::DEC(u16& nn)
 {
     nn--;
     clock();
@@ -1915,7 +2091,7 @@ void gameboy::DEC(u16& nn)
  *
  * @param[in] The register nn to be added to HL.
  */
-void gameboy::ADD_HL(u16 n)
+void gameboy_cpu::ADD_HL(u16 n)
 {
     clock();
     clock();
@@ -1938,7 +2114,7 @@ void gameboy::ADD_HL(u16 n)
 /**
  * CPL
  */
-void gameboy::CPL()
+void gameboy_cpu::CPL()
 {
     set(FLAG_N);
     set(FLAG_H);
@@ -1950,7 +2126,7 @@ void gameboy::CPL()
 /**
  * CCF
  */
-void gameboy::CCF()
+void gameboy_cpu::CCF()
 {
     if (isSet(FLAG_C))
         reset(FLAG_C);
@@ -1964,7 +2140,7 @@ void gameboy::CCF()
 /**
  * SCF
  */
-void gameboy::SCF()
+void gameboy_cpu::SCF()
 {
     set(FLAG_C);
     clock();
@@ -1974,7 +2150,7 @@ void gameboy::SCF()
 /**
  * RLCA
  */
-void gameboy::RLCA()
+void gameboy_cpu::RLCA()
 {
     reset(FLAG_N);
     reset(FLAG_H);
@@ -2001,7 +2177,7 @@ void gameboy::RLCA()
 /**
  * RLA
  */
-void gameboy::RLA()
+void gameboy_cpu::RLA()
 {
     reset(FLAG_N);
     reset(FLAG_H);
@@ -2028,7 +2204,7 @@ void gameboy::RLA()
 /**
  * RRCA
  */
-void gameboy::RRCA()
+void gameboy_cpu::RRCA()
 {
     reset(FLAG_N);
     reset(FLAG_H);
@@ -2055,7 +2231,7 @@ void gameboy::RRCA()
 /**
  * RRA
  */
-void gameboy::RRA()
+void gameboy_cpu::RRA()
 {
     reset(FLAG_N);
     reset(FLAG_H);
@@ -2083,7 +2259,7 @@ void gameboy::RRA()
  *
  * @param[in] The register n to be shifted right.
  */
-void gameboy::SRL(u8& n)
+void gameboy_cpu::SRL(u8& n)
 {
     reset(FLAG_N);
     reset(FLAG_H);
@@ -2107,7 +2283,7 @@ void gameboy::SRL(u8& n)
 /**
  * SRL (HL)
  */
-void gameboy::SRL()
+void gameboy_cpu::SRL()
 {
     clock();
     u8 n = read8(hl.r);
@@ -2122,7 +2298,7 @@ void gameboy::SRL()
  * @param[in] b The bit to test.
  * @param[in] r The register whose bit is being tested.
  */
-void gameboy::BIT(u8 b, u8 r)
+void gameboy_cpu::BIT(u8 b, u8 r)
 {
     reset(FLAG_N);
     set(FLAG_H);
@@ -2139,7 +2315,7 @@ void gameboy::BIT(u8 b, u8 r)
 /**
  * SET b, r
  */
-void gameboy::SET(u8 b, u8& r)
+void gameboy_cpu::SET(u8 b, u8& r)
 {
     r |= (1 << b);
     clock();
@@ -2149,7 +2325,7 @@ void gameboy::SET(u8 b, u8& r)
 /**
  * SET b, (HL)
  */
-void gameboy::SET(u8 b)
+void gameboy_cpu::SET(u8 b)
 {
     clock();
     u8 n = read8(hl.r);
@@ -2163,7 +2339,7 @@ void gameboy::SET(u8 b)
 /**
  * RES b, r
  */
-void gameboy::RES(u8 b, u8& r)
+void gameboy_cpu::RES(u8 b, u8& r)
 {
     r &= (0xFF ^ (1 << b));
     clock();
@@ -2173,7 +2349,7 @@ void gameboy::RES(u8 b, u8& r)
 /**
  * RES b, (HL)
  */
-void gameboy::RES(u8 b)
+void gameboy_cpu::RES(u8 b)
 {
     clock();
     u8 n = read8(hl.r);
@@ -2188,7 +2364,7 @@ void gameboy::RES(u8 b)
  * JP nn
  * This instruction takes 16 clock cycles (as per Gekkio docs)
  */
-void gameboy::JP()
+void gameboy_cpu::JP()
 {
     u16 addr = 0;
     clock();
@@ -2205,7 +2381,7 @@ void gameboy::JP()
  * JP cc,nn
  * Assuming same timing as JP nn (Gekkio docs)
  */
-void gameboy::JP(bool take)
+void gameboy_cpu::JP(bool take)
 {
     if (take)
     {
@@ -2232,7 +2408,7 @@ void gameboy::JP(bool take)
 /**
  * JP (HL)
  */
-void gameboy::JP_HL()
+void gameboy_cpu::JP_HL()
 {
     pc = hl.r;
     clock();
@@ -2243,7 +2419,7 @@ void gameboy::JP_HL()
  * JR n
  * Based off timing from Gekkio docs and Pandocs.
  */
-void gameboy::JR()
+void gameboy_cpu::JR()
 {
     clock();
     pc += (s8)read8(pc++);
@@ -2256,7 +2432,7 @@ void gameboy::JR()
  * JR cc, n
  * Based off timing from Gekkio docs and Pandocs.
  */
-void gameboy::JR(bool take)
+void gameboy_cpu::JR(bool take)
 {
     if (take)
         JR();
@@ -2272,7 +2448,7 @@ void gameboy::JR(bool take)
 /**
  * CALL nn
  */
-void gameboy::CALL()
+void gameboy_cpu::CALL()
 {
     u16 addr = 0;
     clock();
@@ -2293,7 +2469,7 @@ void gameboy::CALL()
 /**
  * CALL cc, nn
  */
-void gameboy::CALL(bool take)
+void gameboy_cpu::CALL(bool take)
 {
     clock();
 
@@ -2326,7 +2502,7 @@ void gameboy::CALL(bool take)
  *
  * @param[in] The position n to restart to.
  */
-void gameboy::RST(u8 n)
+void gameboy_cpu::RST(u8 n)
 {
     clock();
     clock(); // delay
@@ -2342,7 +2518,7 @@ void gameboy::RST(u8 n)
  * RET
  * Assuming the same timing as RST (pandocs suggest 16clks)
  */
-void gameboy::RET()
+void gameboy_cpu::RET()
 {
     u16 addr = 0;
     clock();
@@ -2358,7 +2534,7 @@ void gameboy::RET()
 /**
  * RET cc
  */
-void gameboy::RET(bool take)
+void gameboy_cpu::RET(bool take)
 {
     if (take)
     {
@@ -2376,11 +2552,11 @@ void gameboy::RET(bool take)
 /**
  * RETI
  */
-void gameboy::RETI()
+void gameboy_cpu::RETI()
 {
     RET();
     //then enable interrupts
-    ime = 1;
+    bus->ime = 1;
     printf("\nRETI encountered @ %X", pc);
 }
 
@@ -2388,11 +2564,11 @@ void gameboy::RETI()
 /**
  * DI
  */
-void gameboy::DI()
+void gameboy_cpu::DI()
 {
     // timing of interrupt disable is WRONG
     clock();
-    ime = 0;
+    bus->ime = 0;
     printf("\nDI encountered @ %X", pc);
 }
 
@@ -2400,22 +2576,86 @@ void gameboy::DI()
 /**
  * EI
  */
-void gameboy::EI()
+void gameboy_cpu::EI()
 {
     // timing of interrupt enabled is WRONG
     clock();
-    ime = 1;
+    bus->ime = 1;
     printf("\nEI encountered @ %X", pc);
+}
+
+
+/**
+* Class respresenting the GameBoy emulator.
+*/
+class gameboy
+{
+    public:
+        gameboy();
+        
+        bool init(const char* romFname);
+        void step();
+
+    private:
+        gameboy_bus gb_bus;
+        gameboy_cpu gb_cpu{ &gb_bus };
+        gameboy_ppu gb_ppu;
+
+};
+
+
+/**
+ * A simple constructor that assigns a gameboy_bus* to the CPU and PPU.
+ */
+gameboy::gameboy()
+{
+    gb_cpu.setBus(&gb_bus);
+    gb_ppu.setBus(&gb_bus);
+}
+
+
+/**
+ * Initializes the gameboy class. Initializes its members as well. Loads the
+ * ROM file located at romFname. Returns true on success, false otherwise.
+ *
+ * @param[in] The name of the ROM file to load.
+ * @returns true on success, false on otherwise.
+ */
+bool gameboy::init(const char *romFname)
+{
+    gb_cpu.init();
+    //gb_ppu.init();
+
+    return true;
+}
+
+
+/**
+ * Performs one 'step' of execution of the GameBoy CPU. The number of clock
+ * cycles this consumes will vary by instruction. The PPU and other devices
+ * are all clocked the same amount from with the gameboy_cpu::execute()
+ * function (see gameboy_cpu::execute, gameboy_cpu::clock and gameboy_ppu::clock)
+ */
+void gameboy::step()
+{
+    gb_cpu.execute();
 }
 
 
 int main(int argc, char *argv[])
 {
     // Just some sanity testing.. blah blah..
-    gameboy gb;
+    /*gameboy gb;
     if (!gb.init())
     {
         printf("\n\nFailed to init gameboy class. quitting.");
+        std::cin.ignore(80, '\n');
+        return 1;
+    }*/
+    gameboy gb;
+    if (!gb.init("test.gb"))
+    {
+        printf("\n\nFailed to init gameboy class. Quitting...");
         std::cin.ignore(80, '\n');
         return 1;
     }
@@ -2448,12 +2688,12 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < 1500000; i++)
     {
-        gb.execute();
+        gb.step();
     }
 
     //SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 255, 255));
 
-    for (int x = 0; x < 32; x++) // tile's x coord ( * 8) in the background map
+    /*for (int x = 0; x < 32; x++) // tile's x coord ( * 8) in the background map
     {
         for (int y = 0; y < 4; y++) // tile's y coord ( * 8) ...
         {
@@ -2492,7 +2732,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < 0x1800; i++)
     {
         printf("%X ", gb.vram[i]);
-    }
+    }*/
 
     //SDL_UpdateWindowSurface(window);
     SDL_RenderPresent(renderer);
