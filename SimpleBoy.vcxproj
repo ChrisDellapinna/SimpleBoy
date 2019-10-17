@@ -73,7 +73,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <OutDir>$(SolutionDir)build\$(Configuration)\</OutDir>
     <IntDir>build\$(Configuration)\</IntDir>
-    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(SolutionDir)ext\windows\SDL2-devel-2.0.9-VC\SDL2-2.0.9\include</IncludePath>
+    <IncludePath>$(SolutionDir)src;$(VC_IncludePath);$(WindowsSDK_IncludePath);$(SolutionDir)ext\windows\SDL2-devel-2.0.9-VC\SDL2-2.0.9\include</IncludePath>
     <LibraryPath>$(VC_LibraryPath_x86);$(WindowsSDK_LibraryPath_x86);$(NETFXKitsDir)Lib\um\x86;$(SolutionDir)ext\windows\SDL2-devel-2.0.9-VC\SDL2-2.0.9\lib\x86</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -134,7 +134,18 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\gameboy_cart.cpp" />
+    <ClCompile Include="src\gameboy_cpu.cpp" />
+    <ClCompile Include="src\gameboy_ppu.cpp" />
+    <ClCompile Include="src\gameboy_cpu.h" />
+    <ClCompile Include="src\gameboy_bus.cpp" />
     <ClCompile Include="src\main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\gameboy_bus.h" />
+    <ClInclude Include="src\gameboy_cart.h" />
+    <ClInclude Include="src\gameboy_common.h" />
+    <ClInclude Include="src\gameboy_ppu.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
