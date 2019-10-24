@@ -101,7 +101,7 @@ void gameboy_ppu::clock()
                     write8(0xFF00 + IO_PPU_STAT, read8(0xFF00 + IO_PPU_STAT) + 1);
                     //io[IO_PPU_STAT]++; // stat=3 (lcd transfer)
                 }
-                else if (clks % 456 == 252 && (read8(0xFF00 + IO_PPU_STAT) & 3) == 3) //(io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
+                /*else if (clks % 456 == 252 && (read8(0xFF00 + IO_PPU_STAT) & 3) == 3) //(io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
                 {
                     // THE TIMING FOR THIS IS WRONG (NEED EXACT PPU TIMING)
                     write8(0xFF00 + IO_PPU_STAT, read8(0xFF00 + IO_PPU_STAT) & 0xFC); // io[IO_PPU_STAT] &= 0xFC;
@@ -112,7 +112,7 @@ void gameboy_ppu::clock()
 
                     //if ((io[IO_PPU_STAT] & 8) != 0)
                     //    bus->irq(INT_STAT);
-                }
+                }*/
 
                 // Perform the LY/LYC comparison, special case for line 153 (clk 4 compares LYC to 153, clk 8 is always flag reset)
                 if (read8(0xFF00 + IO_PPU_LY) == 0 && (read8(0xFF00 + IO_PPU_STAT) & 3) == 1)
@@ -189,7 +189,7 @@ void gameboy_ppu::clock()
         u8 ly = read8(0xFF00 + IO_PPU_LY);
         if ((read8(0xFF00 + IO_PPU_LCDC) & 0x80) != 0 && ly >= 0 && ly <= 143 && (read8(0xFF00 + IO_PPU_STAT) & 3) != 1)  
         {
-            printf("\nPPU rendering, clks = %i, fetcherClks = %i", clks, fetcherClksLeft);
+            printf("\nPPU rendering, clks = %i, fetcherClks = %i, pxcount = %i, px fifo size = %i, STAT mode = %i", clks, fetcherClksLeft, pxcount, pxfifo.size(), read8(0xFF00 + IO_PPU_STAT) & 3);
             u32 clksRefresh = clks % CLOCK_GB_SCANLINE;
 
             // Compile the list of sprites to render
@@ -248,7 +248,14 @@ void gameboy_ppu::clock()
                         while (!pxfifo.empty())
                             pxfifo.pop();
 
-                        pxcount = 0; // not quite, gotta set the STAT mode to h-blank
+                        fetcherClksLeft = 0;
+
+                        write8(0xFF00 + IO_PPU_STAT, read8(0xFF00 + IO_PPU_STAT) & 0xFC);  // stat mode = h-blank
+
+                        // Trigger STAT IRQ if enabled
+                        if ((read8(0xFF00 + IO_PPU_STAT) & 8) != 0)
+                            bus->irq(INT_STAT);
+                        
                         //drawScanlineCallback();
                     }
                 }
