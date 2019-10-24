@@ -7,6 +7,15 @@
 #include "gameboy_bus.h"
 #include "gameboy_cart.h"
 
+
+/**
+ *
+ */
+void gameboy_bus::irq(u8 interruptPos)
+{
+    write8PPU(0xFF0F, read8PPU(0xFF0F) | (1 << interruptPos));
+}
+
 /**
  */
 gameboy_cart* gameboy_bus::cartridge()
@@ -83,8 +92,8 @@ u8 gameboy_bus::read8PPU(u16 addr)
         return vram[addr - 0x8000]; // VRAM
     else if (addr >= 0xFE00 && addr < 0xFEA0)
         return oam[addr - 0xFE00]; // OAM
-    else if (addr >= 0xFE40 && addr < 0xFE80 || addr == 0xFE00 + IO_INT_IF)
-        return io[addr - 0xFE00]; // IO (PPU-related only)
+    else if (addr >= 0xFF40 && addr < 0xFF80 || addr == 0xFF00 + IO_INT_IF)
+        return io[addr - 0xFF00]; // IO (PPU-related only)
     else if (addr == 0xFFFF)
         return ier;
     else
@@ -173,8 +182,8 @@ void gameboy_bus::write8PPU(u16 addr, u8 n)
         vram[addr - 0x8000] = n; // VRAM
     else if (addr >= 0xFE00 && addr < 0xFEA0)
         oam[addr - 0xFE00] = n; // OAM
-    else if (addr >= 0xFE40 && addr < 0xFE80 || addr == 0xFE00 + IO_INT_IF)
-        io[addr - 0xFE00] = n; // IO (PPU-related only)
+    else if (addr >= 0xFF40 && addr < 0xFF80 || addr == 0xFF00 + IO_INT_IF)
+        io[addr - 0xFF00] = n; // IO (PPU-related only)
     else if (addr == 0xFFFF)
         ier = n;
     else

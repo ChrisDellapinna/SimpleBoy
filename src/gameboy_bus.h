@@ -19,6 +19,7 @@ public:
     void write8PPU(u16 addr, u8 n);
     void write8DMA(u16 addr, u8 n);
     
+    void irq(u8 interruptPos);
     gameboy_cart* cartridge();
 
     u8 ime = 1;

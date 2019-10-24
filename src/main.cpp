@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
     {
         gb.step();
         printf("\nPC: %X, AF: %X, BC: %X, DE: %X, HL: %X", gb.gb_cpu.pc, gb.gb_cpu.af.r, gb.gb_cpu.bc.r, gb.gb_cpu.de.r, gb.gb_cpu.hl.r);
-        std::cin.ignore(80, '\n');
+        //std::cin.ignore(80, '\n');
     }
 
     //SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 255, 255));

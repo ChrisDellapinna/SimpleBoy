@@ -8,6 +8,7 @@
 #include <array>
 #include <queue>
 
+#include "gameboy_common.h"
 #include "gameboy_bus.h"
 
 
@@ -33,7 +34,7 @@ public:
 
 private:
     gameboy_bus* bus;
-    u8 io[0x20]; // PPU IO covers $FF40 - $FF6F
+    //u8 io[0x20]; // PPU IO covers $FF40 - $FF6F
     u8 vram[0x2000], oam[0xA0];
 
     u32 clks = 0;
@@ -46,6 +47,8 @@ private:
 
     u16 x, y, bgMapCol, bgMapRow, bgMapAddr, bgDataAddr, bgMapOffset, bgDataOffset;
 
+    u8 read8(u16 addr);
+    void write8(u16 addr, u8 n);
 
     void fetchTile();
     void fetchSprite();
