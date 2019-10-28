@@ -1,10 +1,24 @@
 
 /**/
 
+#include <SDL.h>
+
 #include "gameboy_common.h"
 #include "gameboy_bus.h"
 #include "gameboy_ppu.h"
 
+
+/**
+ * Sets up several rendering related variables so the PPU class can later render images.
+ *
+ * @param[in] The SDL_Renderer * to be used, the SDL_Window * to be used, the SDL_Surface * to be used.
+ */
+void gameboy_ppu::setRender(SDL_Renderer* r, SDL_Window* w, SDL_Surface* s)
+{
+    renderer = r;
+    window = w;
+    screen = s;
+}
 
 
 /**
@@ -189,7 +203,7 @@ void gameboy_ppu::clock()
         u8 ly = read8(0xFF00 + IO_PPU_LY);
         if ((read8(0xFF00 + IO_PPU_LCDC) & 0x80) != 0 && ly >= 0 && ly <= 143 && (read8(0xFF00 + IO_PPU_STAT) & 3) != 1)  
         {
-            printf("\nPPU rendering, clks = %i, fetcherClks = %i, pxcount = %i, px fifo size = %i, STAT mode = %i", clks, fetcherClksLeft, pxcount, pxfifo.size(), read8(0xFF00 + IO_PPU_STAT) & 3);
+            //printf("\nPPU rendering, clks = %i, fetcherClks = %i, pxcount = %i, px fifo size = %i, STAT mode = %i", clks, fetcherClksLeft, pxcount, pxfifo.size(), read8(0xFF00 + IO_PPU_STAT) & 3);
             u32 clksRefresh = clks % CLOCK_GB_SCANLINE;
 
             // Compile the list of sprites to render
@@ -201,11 +215,13 @@ void gameboy_ppu::clock()
             else if (clksRefresh == 84)  // Just started rendering process, setup a few variables for tile fetching and reset pxcount
             {
                 // We'll determine the tile in the bg map to start rendering and begin fetching data
-                x = 0, y = read8(0xFF00 + IO_PPU_LY); // coords of first px to render (simplified for now)
+                x = read8(0xFF00 + IO_PPU_SCX), y = read8(0xFF00 + IO_PPU_LY) + read8(0xFF00 + IO_PPU_SCY); // coords of first px to render (simplified for now)
                 bgMapCol = (x / 8) % 32, bgMapRow = (y / 8) % 32; // col/row of tile in bg map
                 bgMapAddr = (((read8(0xFF00 + IO_PPU_LCDC) >> 3) & 1) == 0) ? 0x9800 : 0x9C00;
                 bgMapOffset = bgMapRow * 32 + bgMapCol;
 
+                pxToDiscardX = x % 8;
+                bgTileVerticalOffset = (y % 8) * 2;
                 pxcount = 0;
                 fetcherClksLeft = 0;
 
@@ -239,7 +255,11 @@ void gameboy_ppu::clock()
                 if (pxfifo.size() > 8)
                 {
                     // More than 8 px in FIFO so we're able to push a px to screen
-                    scanline[pxcount++] = pxfifo.front();
+                    if (pxToDiscardX <= 0)
+                        scanline[pxcount++] = pxfifo.front();
+                    else
+                        pxToDiscardX--;
+
                     pxfifo.pop();
 
                     // If done rendering to the LCD
@@ -256,7 +276,8 @@ void gameboy_ppu::clock()
                         if ((read8(0xFF00 + IO_PPU_STAT) & 8) != 0)
                             bus->irq(INT_STAT);
                         
-                        //drawScanlineCallback();
+                        renderScanline();
+                        //std::cin.ignore(80, '\n');
                     }
                 }
 
@@ -296,28 +317,36 @@ void gameboy_ppu::write8(u16 addr, u8 n)
  */
 void gameboy_ppu::fetchTile()
 {
-    printf("\nTile Fetch request at BGMap = %X + BGOffset = %X, clks = %i", bgMapAddr, bgMapOffset, clks);
-
-    u8 tileLSB, tileMSB;
+    //printf("\nTile Fetch request at BGMap = %X + BGOffset = %X, clks = %i", bgMapAddr, bgMapOffset, clks);
+    u8 tileLSB, tileMSB, bgp = read8(0xFF00 + IO_PPU_BGP);
 
     if (((read8(0xFF00 + IO_PPU_LCDC) >> 4) & 1) == 0) // bg data at $8800, signed tile number
     {
+        
         s8 tileNum = bus->read8PPU(bgMapAddr + bgMapOffset);
-        tileLSB = bus->read8PPU(0x8800 + tileNum);
-        tileMSB = bus->read8PPU(0x8800 + tileNum + 1);
+        //printf("\nTile # (s): %i", tileNum);
+        tileLSB = bus->read8PPU(0x8800 + bgTileVerticalOffset + tileNum * 16);
+        tileMSB = bus->read8PPU(0x8800 + bgTileVerticalOffset + tileNum * 16 + 1);
 
     }
     else // bg data at $8000, unsigned tile number
     {
+        //printf("\nBG Map addr = %X ", bgMapAddr + bgMapOffset);
         u8 tileNum = bus->read8PPU(bgMapAddr + bgMapOffset);
-        tileLSB = bus->read8PPU(0x8000 + tileNum);
-        tileMSB = bus->read8PPU(0x8800 + tileNum + 1);
+        //printf(" TileNum = %X", tileNum);
+        //printf("\nTile # (u): %i", tileNum);
+        tileLSB = bus->read8PPU(0x8000 + bgTileVerticalOffset + tileNum * 16);
+        tileMSB = bus->read8PPU(0x8000 + bgTileVerticalOffset + tileNum * 16 + 1);
     }
 
     // copy data to fetchedTile
     for (int i = 7; i >= 0; i--)
     {
-        fetchedTile[i] = ((tileLSB >> i) & 1) | (((tileMSB >> i) & 1) << 1);
+        u8 paletteSelect = ((tileLSB >> i) & 1) | (((tileMSB >> i) & 1) << 1);
+        fetchedTile[7 - i] = ((bgp >> (paletteSelect * 2)) & 3);
+        //printf("\nFetched tile: ");
+        //for (auto t : fetchedTile)
+        //    printf("%X ", t);
     }
 
     fetcherClksLeft += 6;
@@ -331,3 +360,38 @@ void gameboy_ppu::fetchSprite()
 {
 
 }
+
+
+void gameboy_ppu::renderScanline()
+{
+    u8 cols[4] = {255, 170, 90, 0};
+    u8 ly = read8(0xFF00 + IO_PPU_LY), x = 0;
+
+    if (ly == 0)
+    {
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_RenderClear(renderer);
+    }
+
+    for (auto p : scanline)
+    {
+        auto col = cols[p];
+
+        SDL_SetRenderDrawColor(renderer, col, col, col, 255);
+        if (SDL_RenderDrawPoint(renderer, x++, ly) < 0)
+            printf("\n\nSDL Error: %s", SDL_GetError());
+    }
+
+    //printf("\nLY: %i, BGP: %X", ly, read8(0xFF00 + IO_PPU_BGP));
+    
+    if (ly == GB_LCD_YPIXELS - 1)
+        renderScreen();
+}
+
+
+void gameboy_ppu::renderScreen()
+{
+    SDL_RenderPresent(renderer);
+    //SDL_Delay(20);
+}
+

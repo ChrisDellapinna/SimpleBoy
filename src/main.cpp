@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
     SDL_Renderer* renderer = NULL;
     //SDL_Rect r;
 
-    /*if (SDL_Init(SDL_INIT_VIDEO))
+    if (SDL_Init(SDL_INIT_VIDEO))
     {
         printf("\nUnable to start SDL!");
         return -1;
@@ -127,13 +127,14 @@ int main(int argc, char *argv[])
     //screen = SDL_GetWindowSurface(window);
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_RenderClear(renderer);*/
+    SDL_RenderClear(renderer);
     
+    gb.gb_ppu.setRender(renderer, window, screen);
 
-    for (int i = 0; i < 1500000; i++)
+    for (int i = 0; i < 90000000; i++)
     {
         gb.step();
-        printf("\nPC: %X, AF: %X, BC: %X, DE: %X, HL: %X", gb.gb_cpu.pc, gb.gb_cpu.af.r, gb.gb_cpu.bc.r, gb.gb_cpu.de.r, gb.gb_cpu.hl.r);
+        //printf("\nPC: %X, AF: %X, BC: %X, DE: %X, HL: %X", gb.gb_cpu.pc, gb.gb_cpu.af.r, gb.gb_cpu.bc.r, gb.gb_cpu.de.r, gb.gb_cpu.hl.r);
         //std::cin.ignore(80, '\n');
     }
 

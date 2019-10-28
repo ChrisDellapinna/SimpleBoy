@@ -125,7 +125,6 @@ void gameboy_bus::write8CPU(u16 addr, u8 n)
         vram[addr - 0x8000] = n;
         //printf("\nWRITE TO VRAM @ %X : %X", addr, n);
     }
-
     else if (addr < 0xC000) // External (cart) RAM
         return;
     else if (addr < 0xE000) // WRAM

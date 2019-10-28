@@ -7,6 +7,7 @@
 
 #include <array>
 #include <queue>
+#include <SDL.h>
 
 #include "gameboy_common.h"
 #include "gameboy_bus.h"
@@ -15,27 +16,16 @@
 /**
  *
  */
-struct pxdata
-{
-    u8 r, g, b;
-};
-
-
-/**
- *
- */
 class gameboy_ppu
 {
 public:
-    void (*drawScanlineCallback)() = nullptr;
+    void setRender(SDL_Renderer* r, SDL_Window *w, SDL_Surface *s);
 
     void setBus(gameboy_bus* b);
     void clock();
 
 private:
     gameboy_bus* bus;
-    //u8 io[0x20]; // PPU IO covers $FF40 - $FF6F
-    u8 vram[0x2000], oam[0xA0];
 
     u32 clks = 0;
     u8 fetcherStep = 0, fetcherClksLeft = 0;
@@ -45,13 +35,21 @@ private:
     std::queue<u8> pxfifo;
     std::array<u8, GB_LCD_XPIXELS> scanline;
 
+    SDL_Renderer* renderer;
+    SDL_Window* window;
+    SDL_Surface* screen;
+
     u16 x, y, bgMapCol, bgMapRow, bgMapAddr, bgDataAddr, bgMapOffset, bgDataOffset;
+    u8 pxToDiscardX = 0, bgTileVerticalOffset = 0;
 
     u8 read8(u16 addr);
     void write8(u16 addr, u8 n);
 
     void fetchTile();
     void fetchSprite();
+
+    void renderScanline();
+    void renderScreen();
 };
 
 

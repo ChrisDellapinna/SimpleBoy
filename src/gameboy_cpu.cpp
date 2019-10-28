@@ -1901,7 +1901,7 @@ void gameboy_cpu::RETI()
     RET();
     //then enable interrupts
     bus->ime = 1;
-    printf("\nRETI encountered @ %X", pc);
+    //printf("\nRETI encountered @ %X", pc);
 }
 
 
