@@ -134,6 +134,8 @@ public:
     void RRA();
     void SRL(u8& n);
     void SRL();
+    void RL(u8& n);
+    void RL();
     void RR(u8& n);
     void RR();
 

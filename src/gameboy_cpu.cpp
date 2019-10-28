@@ -751,6 +751,14 @@ void gameboy_cpu::execute()
                 {
                     switch (op)
                     {
+                    case 0x10: RL(bc.hi); break; // RL B
+                    case 0x11: RL(bc.lo); break; // RL C
+                    case 0x12: RL(de.hi); break; // RL D
+                    case 0x13: RL(de.lo); break; // RL E
+                    case 0x14: RL(hl.hi); break; // RL H
+                    case 0x15: RL(hl.lo); break; // RL L
+                    case 0x16: RL(); break; // RL (HL)
+                    case 0x17: RL(af.hi); break; // RL A
                     case 0x18: RR(bc.hi); break; // RR B
                     case 0x19: RR(bc.lo); break; // RR C
                     case 0x1A: RR(de.hi); break; // RR D
@@ -1649,6 +1657,48 @@ void gameboy_cpu::SRL()
     clock();
     u8 n = read8(hl.r);
     SRL(n);
+    clock();
+}
+
+
+/**
+ * RL n
+ *
+ * @param[in] The register n to be rotated left through carry.
+ */
+void gameboy_cpu::RL(u8& n)
+{
+    u8 carry = (isSet(FLAG_C)) ? 1 : 0;
+
+    if ((n >> 7) != 0)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    n <<= 1;
+    n |= carry;
+
+    if (n == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    clock();
+}
+
+
+/**
+ * RL (HL)
+ */
+void gameboy_cpu::RL()
+{
+    clock();
+    u8 n = read8(hl.r);
+    RL(n);
+    write8(hl.r, n);
     clock();
 }
 
