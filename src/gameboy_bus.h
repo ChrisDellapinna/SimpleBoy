@@ -19,6 +19,9 @@ public:
     void write8PPU(u16 addr, u8 n);
     void write8DMA(u16 addr, u8 n);
     
+    void updateDiv(u8 div);
+    bool isDivReset();
+    
     void irq(u8 interruptPos);
     gameboy_cart* cartridge();
 
@@ -37,6 +40,8 @@ private:
     u8 io[0x80];
     u8 ier;
     //u8 ime = 1;
+
+    bool divReset = false;
 };
 
 

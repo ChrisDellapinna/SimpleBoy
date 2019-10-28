@@ -123,7 +123,6 @@ void gameboy_bus::write8CPU(u16 addr, u8 n)
     else if (addr < 0xA000) // VRAM
     {
         vram[addr - 0x8000] = n;
-        //printf("\nWRITE TO VRAM @ %X : %X", addr, n);
     }
     else if (addr < 0xC000) // External (cart) RAM
         return;
@@ -162,6 +161,10 @@ void gameboy_bus::write8CPU(u16 addr, u8 n)
             //oam_dma_clks = 0;
         }
 
+        // Timer related
+        case IO_TIM_DIV: io[IO_TIM_DIV] = 0; divReset = true; break; // all writes reset to 0
+        case IO_TIM_TAC: io[IO_TIM_TAC] = (n & 7); break;  // only lower 3 bits r/w
+
         default: io[addr - 0xFF00] = n; // eh
         }
     }
@@ -197,4 +200,29 @@ void gameboy_bus::write8DMA(u16 addr, u8 n)
 {
 
 }
+
+
+/**
+ *
+ */
+void gameboy_bus::updateDiv(u8 div)
+{
+    io[IO_TIM_DIV] = div;
+}
+
+
+/**
+ *
+ */
+bool gameboy_bus::isDivReset()
+{
+    if (divReset)
+    {
+        divReset = false;  // reset
+        return true;
+    }
+    else
+        return false;
+}
+
 

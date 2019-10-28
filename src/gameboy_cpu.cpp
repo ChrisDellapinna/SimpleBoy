@@ -118,115 +118,41 @@ void gameboy_cpu::setPpu(gameboy_ppu* p)
 void gameboy_cpu::clock()
 {
     clks += 4;
+    
+    // Update timers
+    clksDivCounter += 4;
+    if (bus->isDivReset())
+        clksDivCounter = 0;
 
-    ppu->clock();
+    bus->updateDiv((clksDivCounter >> 8) & 0xFF); // Update DIV
 
-    // Clock the PPU/LCD, emulated pixel will be pushed out. This adds 4 to ppu_clks
-    /*clock_ppu_lcd();
-
-    // check lcd/stat timing
-    if ((io[IO_PPU_LCDC] & 0x80) == 0) // Display is off
+    u8 tac = read8(0xFF00 + IO_TIM_TAC);
+    if ((tac & 4) != 0)  // TIMA enabled
     {
-        ppu_clks = 0;
-        io[IO_PPU_STAT] &= 0xFC; // h-blank / display off (Cycle Accurate GameBoy Docs state mode = 0)
+        clksTimaCounter += 4;
 
-        // TODO: Still perform LY/LYC comparison even though LCD off?
+        if (clksTimaCounter >= timaTimes[tac & 3])
+        {
+            clksTimaCounter = 0;  // reset counter, inc TIMA
+            u8 tima = read8(0xFF00 + IO_TIM_TIMA);
+            tima++;
+
+            if (tima == 0)  // TIMA overflowed
+            {
+                // Set TIMA to the modulo and irq
+                tima = read8(0xFF00 + IO_TIM_TMA);
+                irq(INT_TIMER);
+            }
+            
+            write8(0xFF00 + IO_TIM_TIMA, tima);
+        }
     }
     else
-    {
-        // display on, do normal ppu clocking
-        if (ppu_clks % 456 == 0) // If we just moved onto the next line/LY
-        {
-            if (io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 0x03) == 1) // stat=vblank, on line 153
-                io[IO_PPU_STAT] &= 0xFC; // set stat to h-blank (0), leave ly as-is for ln 0
-                // POTENTIALLY TRIGGER STAT IRQ HERE?????
-            else
-                io[IO_PPU_LY]++;
+        clksTimaCounter = 0;
 
-            // LYC Coincidence bit of STAT is always reset on this clock, except when LY=0
-            if (io[IO_PPU_LY] != 0)
-                io[IO_PPU_STAT] &= 0xFB;
-            else
-                (io[IO_PPU_LYC] == 0) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
-        }
-        else
-        {
-            //
-            if (ppu_clks % 456 == 4)
-            {
-                if (io[IO_PPU_LY] == 153)  // becomes ly=0, vblank
-                    io[IO_PPU_LY] = 0;
-                else if (io[IO_PPU_LY] <= 143) // standard display line, stat=oam search (2)
-                {
-                    io[IO_PPU_STAT] &= 0xFC; // stat should already =0, probably not needed
-                    io[IO_PPU_STAT] |= 2;
+    // Clock PPU
+    ppu->clock();
 
-                    // Trigger STAT IRQ if enabled in STAT
-                    if ((io[IO_PPU_STAT] & 0x20) != 0)
-                        irq(INT_STAT);
-                }
-                else if (io[IO_PPU_LY] == 144) // start of vblank
-                {
-                    io[IO_PPU_STAT] &= 0xFC;
-                    io[IO_PPU_STAT] |= 1; // vblank
-                    irq(INT_VBLANK);
-
-                    // Trigger STAT IRQ if enabled in STAT
-                    if ((io[IO_PPU_STAT] & 0x10) != 0)
-                        irq(INT_STAT);
-                }
-
-            }
-            else if (ppu_clks % 456 == 84 && (io[IO_PPU_STAT] & 3) == 2) // going from oam -> lcd transfer mode
-            {
-                io[IO_PPU_STAT]++; // stat=3 (lcd transfer)
-            }
-            else if (ppu_clks % 456 == 252 && (io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
-            {
-                // THE TIMING FOR THIS IS WRONG (NEED EXACT PPU TIMING)
-                io[IO_PPU_STAT] &= 0xFC;
-
-                // Trigger STAT IRQ if enabled
-                if ((io[IO_PPU_STAT] & 8) != 0)
-                    irq(INT_STAT);
-            }
-
-            // Perform the LY/LYC comparison, special case for line 153 (clk 4 compares LYC to 153, clk 8 is always flag reset)
-            if (io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 1)
-            {
-                if ((ppu_clks % 456) == 4) // special case, LYC compared to 153 not LY's value of 0
-                    (io[IO_PPU_LYC] == 153) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
-                else if ((ppu_clks % 456) == 8) // special case, coincidence bit is always reset
-                    io[IO_PPU_STAT] &= 0xFB;
-                else // otherwise we compare LYC to LY (=0 in this case) as usual
-                    (io[IO_PPU_LYC] == 0) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
-            }
-            else
-                (io[IO_PPU_LY] == io[IO_PPU_LYC]) ? (io[IO_PPU_STAT] |= 4) : (io[IO_PPU_STAT] &= 0xFB);
-
-            // Perform a STAT IRQ if coincidence bit set, coincidence interrupt enabled in STAT, etc
-            if ((ppu_clks % 456) == 4)
-            {
-                if (!(io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 2)) // not on line 0
-                {
-                    if ((io[IO_PPU_STAT] & 4) != 0) // coincidence bit set
-                    {
-                        if ((io[IO_PPU_STAT] & 0x40) != 0) // STAT IRQ on LY=LYC set
-                            irq(INT_STAT);
-                    }
-                }
-            }
-            // special case, on line 153, irq possibly triggered at clks=12 if LY=LYC=0
-            else if ((ppu_clks % 456) == 12 && io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 1)
-            {
-                if ((io[IO_PPU_STAT] & 4) != 0) // coincidence bit set
-                {
-                    if ((io[IO_PPU_STAT] & 0x40) != 0) // STAT IRQ on LY=LYC set
-                        irq(INT_STAT);
-                }
-            }
-        }
-    }*/
 
     // process any pending OAM DMA
     // TEST THIS! Not super confident in this. Might have an off by one error (timing).
@@ -572,7 +498,7 @@ void gameboy_cpu::execute()
         case 0x1F: RRA(); break; // RRA
         case 0x20: JR(!isSet(FLAG_Z)); break; // JR NZ
         case 0x21: LD(hl.r); break; // LD HL, nn
-        case 0x22: clock(); write8(hl.r--, af.hi); break; // LD (HLI), A
+        case 0x22: clock(); write8(hl.r++, af.hi); break; // LD (HLI), A
         case 0x23: INC(hl.r); break; // INC HL
         case 0x24: INC(hl.hi); break; // INC H
         case 0x25: DEC(hl.hi); break; // DEC H

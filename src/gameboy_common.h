@@ -110,6 +110,8 @@ typedef signed int s32;
 #define GB_LCD_XPIXELS 160
 #define GB_LCD_YPIXELS 144
 
+#define GB_TIMER_DIV_FREQ 16384
+
 
 /**
  * Define the general register format used by the GameBoy processor.

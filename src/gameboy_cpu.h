@@ -53,23 +53,10 @@ public:
     // Clock tracking related
     u32 clks = 0;
     u32 clks_int_enabled = 0;
-    //u32 ppu_clks = 0;
 
-    /*// ppu / drawing related
-    bool drawing = false;
-    u32 pxfifo = 0; // 2b per px * 16 px = 32b
-    u32 pxfifoPixelsStored = 0;
-    u16 fetchedTile = 0;
-    bool fetchedTileReady = false;
-    u32 currentPx = 0;
-    bool pxfifoFetcherPaused = false;
-    u16 pxfifoFetcherData = 0;
-    u16 pxfifoFetcherStep = 0;
-    u16 pxfifoFetcherClksLeft = 0;
-
-    const u16 ppuCurrentBGMap();
-    const u16 ppuCurrentBGData();*/
-
+    u16 timaTimes[4] = {1024, 16, 64, 256};
+    u16 clksDivCounter = 0;
+    u16 clksTimaCounter = 0;
 
 
     // OAM DMA
