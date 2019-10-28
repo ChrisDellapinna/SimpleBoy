@@ -134,6 +134,8 @@ public:
     void RRA();
     void SRL(u8& n);
     void SRL();
+    void RR(u8& n);
+    void RR();
 
     void BIT(u8 b, u8 r);
     void SET(u8 b, u8& r);
@@ -156,6 +158,9 @@ public:
 
     void DI();
     void EI();
+
+    void SWAP(u8 &n);
+    void SWAP();
 };
 
 

@@ -751,6 +751,23 @@ void gameboy_cpu::execute()
                 {
                     switch (op)
                     {
+                    case 0x18: RR(bc.hi); break; // RR B
+                    case 0x19: RR(bc.lo); break; // RR C
+                    case 0x1A: RR(de.hi); break; // RR D
+                    case 0x1B: RR(de.lo); break; // RR E
+                    case 0x1C: RR(hl.hi); break; // RR H
+                    case 0x1D: RR(hl.lo); break; // RR L
+                    case 0x1E: RR(); break; // RR (HL)
+                    case 0x1F: RR(af.hi); break; // RR A
+
+                    case 0x30: SWAP(bc.hi); break; // SWAP B
+                    case 0x31: SWAP(bc.lo); break; // SWAP C
+                    case 0x32: SWAP(de.hi); break; // SWAP D
+                    case 0x33: SWAP(de.lo); break; // SWAP E
+                    case 0x34: SWAP(hl.hi); break; // SWAP H
+                    case 0x35: SWAP(hl.lo); break; // SWAP L
+                    case 0x36: SWAP(); break; // SWAP (HL)
+                    case 0x37: SWAP(af.hi); break; // SWAP A
                     case 0x38: SRL(bc.hi); break; // SRL B
                     case 0x39: SRL(bc.lo); break; // SRL C
                     case 0x3A: SRL(de.hi); break; // SRL D
@@ -1637,6 +1654,48 @@ void gameboy_cpu::SRL()
 
 
 /**
+ * RR n
+ *
+ * @param[in] The register n to rotate right through carry.
+ */
+void gameboy_cpu::RR(u8& n)
+{
+    u8 carry = (isSet(FLAG_C)) ? 1 : 0;
+
+    if ((n & 1) == 1)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    n >>= 1;
+    n |= (carry << 7);
+
+    if (n == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    clock();
+}
+
+
+/**
+ * RR (HL)
+ */
+void gameboy_cpu::RR()
+{
+    clock();
+    u8 n = read8(hl.r);
+    RR(n);
+    write8(hl.r, n);
+    clock();    
+}
+
+
+/**
  * BIT b, r
  *
  * @param[in] b The bit to test.
@@ -1926,6 +1985,43 @@ void gameboy_cpu::EI()
     clock();
     bus->ime = 1;
     printf("\nEI encountered @ %X", pc);
+}
+
+
+/**
+ * SWAP n
+ *
+ * @param[in] The register to be SWAP'd.
+ */
+void gameboy_cpu::SWAP(u8 &n)
+{
+    u8 nibble = n & 0x0F;
+    n >>= 4;
+    n |= (nibble << 4);
+
+    clock();
+
+    if (n == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    reset(FLAG_N);
+    reset(FLAG_H);
+    reset(FLAG_C);
+}
+
+
+/**
+ * SWAP (HL)
+ */
+void gameboy_cpu::SWAP()
+{
+    clock(); // clock for second opcode read
+    u8 n = read8(hl.r);
+    SWAP(n);  // clock for read8(hl.r) done here
+    write8(hl.r, n);
+    clock();
 }
 
 
