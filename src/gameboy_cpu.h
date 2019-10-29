@@ -85,6 +85,7 @@ public:
     void LDH_An();
     void LD_Ann();
     void LD_nnA();
+    void LD_nnSP();
     void PUSH(u16& nn);
     void POP(u16& nn);
 
@@ -121,8 +122,12 @@ public:
     void RRA();
     void SRL(u8& n);
     void SRL();
+    void RLC(u8& n);
+    void RLC();
     void RL(u8& n);
     void RL();
+    void RRC(u8& n);
+    void RRC();
     void RR(u8& n);
     void RR();
 

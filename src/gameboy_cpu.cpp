@@ -473,6 +473,7 @@ void gameboy_cpu::execute()
         case 0x05: DEC(bc.hi); break; // DEC B
         case 0x06: clock(); bc.hi = read8(pc++); break; // LD B, n
         case 0x07: RLCA(); break; // RLCA
+        case 0x08: LD_nnSP(); break; // LD (nn), SP
         case 0x09: ADD_HL(bc.r); break; // ADD HL, BC
         case 0x0A: clock(); af.hi = read8(bc.r); break; // LD A, (BC)
         case 0x0B: DEC(bc.r); break; // DEC BC
@@ -677,6 +678,22 @@ void gameboy_cpu::execute()
                 {
                     switch (op)
                     {
+                    case 0x00: RLC(bc.hi); break; // RLC B
+                    case 0x01: RLC(bc.lo); break; // RLC C
+                    case 0x02: RLC(de.hi); break; // RLC D
+                    case 0x03: RLC(de.lo); break; // RLC E
+                    case 0x04: RLC(hl.hi); break; // RLC H
+                    case 0x05: RLC(hl.lo); break; // RLC L
+                    case 0x06: RLC(); break; // RLC (HL)
+                    case 0x07: RLC(af.hi); break; // RLC A
+                    case 0x08: RRC(bc.hi); break; // RRC B
+                    case 0x09: RRC(bc.lo); break; // RRC C
+                    case 0x0A: RRC(de.hi); break; // RRC D
+                    case 0x0B: RRC(de.lo); break; // RRC E
+                    case 0x0C: RRC(hl.hi); break; // RRC H
+                    case 0x0D: RRC(hl.lo); break; // RRC L
+                    case 0x0E: RRC(); break; // RRC (HL)
+                    case 0x0F: RRC(af.hi); break; // RRC A
                     case 0x10: RL(bc.hi); break; // RL B
                     case 0x11: RL(bc.lo); break; // RL C
                     case 0x12: RL(de.hi); break; // RL D
@@ -943,6 +960,24 @@ void gameboy_cpu::LD_nnA()
     addr |= (read8(pc++) << 8);
     clock();
     write8(addr, af.hi);
+    clock();
+}
+
+
+/**
+ * LD (nn), SP
+ */
+void gameboy_cpu::LD_nnSP()
+{
+    u16 targetAddr = 0;
+    clock();
+    targetAddr |= read8(pc++);
+    clock();
+    targetAddr |= (read8(pc++) << 8);
+    clock();
+    u8 n = read8(sp);
+    clock();
+    write8(targetAddr, n);
     clock();
 }
 
@@ -1583,6 +1618,52 @@ void gameboy_cpu::SRL()
     clock();
     u8 n = read8(hl.r);
     SRL(n);
+    write8(hl.r, n);
+    clock();
+}
+
+
+/**
+ * RLC n
+ *
+ * @param[inout] The register n to be rotated left.
+ */
+void gameboy_cpu::RLC(u8& n)
+{
+    clock();
+    
+    if ((n >> 7) != 0)
+    {
+        set(FLAG_C);
+        n <<= 1;
+        n |= 1;
+    }
+        
+    else
+    {
+        reset(FLAG_C);
+        n <<= 1;
+    }
+
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    if (n == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+}
+
+
+/**
+ * RLC (HL)
+ */
+void gameboy_cpu::RLC()
+{
+    clock();
+    u8 n = read8(hl.r);
+    RLC(n);
+    write8(hl.r, n);
     clock();
 }
 
@@ -1590,7 +1671,7 @@ void gameboy_cpu::SRL()
 /**
  * RL n
  *
- * @param[in] The register n to be rotated left through carry.
+ * @param[inout] The register n to be rotated left through carry.
  */
 void gameboy_cpu::RL(u8& n)
 {
@@ -1624,6 +1705,45 @@ void gameboy_cpu::RL()
     clock();
     u8 n = read8(hl.r);
     RL(n);
+    write8(hl.r, n);
+    clock();
+}
+
+
+/**
+ * RRC n
+ *
+ * @param[inout] The register n to rotate right.
+ */
+void gameboy_cpu::RRC(u8& n)
+{
+    clock();
+
+    if ((n & 1) != 0)
+    {
+        set(FLAG_C);
+        n >>= 1;
+        n |= (1 << 7);
+    }
+    else
+    {
+        reset(FLAG_C);
+        n >>= 1;
+    }
+
+    reset(FLAG_N);
+    reset(FLAG_H);
+}
+
+
+/**
+ * RRC (HL)
+ */
+void gameboy_cpu::RRC()
+{
+    clock();
+    u8 n = read8(hl.r);
+    RRC(n);
     write8(hl.r, n);
     clock();
 }
