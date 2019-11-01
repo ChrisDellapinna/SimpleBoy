@@ -1748,6 +1748,11 @@ void gameboy_cpu::RRC(u8& n)
         n >>= 1;
     }
 
+    if (n == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
     reset(FLAG_N);
     reset(FLAG_H);
 }
@@ -1855,18 +1860,14 @@ void gameboy_cpu::SLA()
 void gameboy_cpu::SRA(u8& n)
 {
     if ((n & 1) != 0)
-    {
         set(FLAG_C);
-
-        n >>= 1;
-        n |= (1 << 7);
-    }
     else
-    {
         reset(FLAG_C);
 
-        n >>= 1;
-    }
+    n >>= 1;
+
+    if ((n & (1 << 6)) != 0)
+        n |= (1 << 7);  // msb of n continues to be set
 
     if (n == 0)
         set(FLAG_Z);
