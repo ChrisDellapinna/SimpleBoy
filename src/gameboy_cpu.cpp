@@ -1131,7 +1131,7 @@ void gameboy_cpu::SBC(u8 n)
     set(FLAG_N);
     u8 c = (isSet(FLAG_C)) ? 1 : 0;
 
-    if ((af.hi & 0x0F) < ((n + c) & 0x0F))
+    if ((af.hi & 0x0F) < ((n & 0x0F) + c))
         set(FLAG_H);
     else
         reset(FLAG_H);
@@ -1480,6 +1480,9 @@ void gameboy_cpu::CCF()
     else
         set(FLAG_C);
 
+    reset(FLAG_H);
+    reset(FLAG_N);
+
     clock();
 }
 
@@ -1490,6 +1493,9 @@ void gameboy_cpu::CCF()
 void gameboy_cpu::SCF()
 {
     set(FLAG_C);
+    reset(FLAG_H);
+    reset(FLAG_N);
+
     clock();
 }
 
@@ -1501,21 +1507,17 @@ void gameboy_cpu::RLCA()
 {
     reset(FLAG_N);
     reset(FLAG_H);
+    reset(FLAG_Z);
 
     u8 msb = ((af.hi & 0x80) != 0) ? 1 : 0;
 
-    if (msb == 1)
+    if (msb != 0)
         set(FLAG_C);
     else
         reset(FLAG_C);
 
     af.hi <<= 1;
     af.hi |= msb;
-
-    if (af.hi == 0)
-        set(FLAG_Z);
-    else
-        reset(FLAG_Z);
 
     clock();
 }
@@ -1528,6 +1530,7 @@ void gameboy_cpu::RLA()
 {
     reset(FLAG_N);
     reset(FLAG_H);
+    reset(FLAG_Z);
 
     u8 c = (isSet(FLAG_C)) ? 1 : 0;
 
@@ -1538,11 +1541,6 @@ void gameboy_cpu::RLA()
 
     af.hi <<= 1;
     af.hi |= c;
-
-    if (af.hi == 0)
-        set(FLAG_Z);
-    else
-        reset(FLAG_Z);
 
     clock();
 }
@@ -1555,6 +1553,7 @@ void gameboy_cpu::RRCA()
 {
     reset(FLAG_N);
     reset(FLAG_H);
+    reset(FLAG_Z);
 
     u8 lsb = ((af.hi & 1) != 0) ? 0x80 : 0;
 
@@ -1565,11 +1564,6 @@ void gameboy_cpu::RRCA()
 
     af.hi >>= 1;
     af.hi |= lsb;
-
-    if (af.hi == 0)
-        set(FLAG_Z);
-    else
-        reset(FLAG_Z);
 
     clock();
 }
@@ -1582,8 +1576,10 @@ void gameboy_cpu::RRA()
 {
     reset(FLAG_N);
     reset(FLAG_H);
+    reset(FLAG_Z);
 
     u8 c = (isSet(FLAG_C)) ? 0x80 : 0;
+
     if ((af.hi & 1) != 0)
         set(FLAG_C);
     else
@@ -1591,11 +1587,6 @@ void gameboy_cpu::RRA()
 
     af.hi >>= 1;
     af.hi |= c;
-
-    if (af.hi == 0)
-        set(FLAG_Z);
-    else
-        reset(FLAG_Z);
 
     clock();
 }
