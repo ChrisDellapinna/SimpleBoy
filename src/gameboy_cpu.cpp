@@ -710,7 +710,22 @@ void gameboy_cpu::execute()
                     case 0x1D: RR(hl.lo); break; // RR L
                     case 0x1E: RR(); break; // RR (HL)
                     case 0x1F: RR(af.hi); break; // RR A
-
+                    case 0x20: SLA(bc.hi); break; // SLA B
+                    case 0x21: SLA(bc.lo); break; // SLA C
+                    case 0x22: SLA(de.hi); break; // SLA D
+                    case 0x23: SLA(de.lo); break; // SLA E
+                    case 0x24: SLA(hl.hi); break; // SLA H
+                    case 0x25: SLA(hl.lo); break; // SLA L
+                    case 0x26: SLA(); break; // SLA (HL)
+                    case 0x27: SLA(af.hi); break; // SLA A
+                    case 0x28: SRA(bc.hi); break; // SRA B
+                    case 0x29: SRA(bc.lo); break; // SRA C
+                    case 0x2A: SRA(de.hi); break; // SRA D
+                    case 0x2B: SRA(de.lo); break; // SRA E
+                    case 0x2C: SRA(hl.hi); break; // SRA H
+                    case 0x2D: SRA(hl.lo); break; // SRA L
+                    case 0x2E: SRA(); break; // SRA (HL)
+                    case 0x2F: SRA(af.hi); break; // SRA A
                     case 0x30: SWAP(bc.hi); break; // SWAP B
                     case 0x31: SWAP(bc.lo); break; // SWAP C
                     case 0x32: SWAP(de.hi); break; // SWAP D
@@ -743,7 +758,7 @@ void gameboy_cpu::execute()
                     case 3: BIT(b, de.lo); break; // BIT b, E
                     case 4: BIT(b, hl.hi); break; // BIT b, H
                     case 5: BIT(b, hl.lo); break; // BIT b, L
-                    case 6: clock();  BIT(b, read8(hl.r)); break; // BIT b, (HL)
+                    case 6: BIT(b); break; // BIT b, (HL)
                     case 7: BIT(b, af.hi); break; // BIT b, A
                     }
                     break;
@@ -760,6 +775,7 @@ void gameboy_cpu::execute()
                     case 4: RES(b, hl.hi); break; // RES b, H
                     case 5: RES(b, hl.lo); break; // RES b, L
                     case 6: RES(b); break; // RES b, (HL)
+                    case 7: RES(b, af.hi); break; // RES b, A
                     }
                     break;
                 }
@@ -775,6 +791,7 @@ void gameboy_cpu::execute()
                     case 4: SET(b, hl.hi); break; // RES b, H
                     case 5: SET(b, hl.lo); break; // RES b, L
                     case 6: SET(b); break; // RES b, (HL)
+                    case 7: SET(b, af.hi); break; // SET b, A
                     }
                     break;
                 }
@@ -1792,10 +1809,95 @@ void gameboy_cpu::RR()
 
 
 /**
+ * SLA n
+ *
+ * @param[inout] The register n to be shifted left.
+ */
+void gameboy_cpu::SLA(u8& n)
+{
+    if ((n >> 7) != 0)
+        set(FLAG_C);
+    else
+        reset(FLAG_C);
+
+    n <<= 1;
+
+    if (n == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    clock();
+}
+
+
+/**
+ * SLA (HL)
+ */
+void gameboy_cpu::SLA()
+{
+    clock();
+    u8 n = read8(hl.r);
+    SLA(n);
+    write8(hl.r, n);
+    clock();
+}
+
+
+/**
+ * SRA n
+ *
+ * @param[inout] The register n to be shifted right. 
+ */
+void gameboy_cpu::SRA(u8& n)
+{
+    if ((n & 1) != 0)
+    {
+        set(FLAG_C);
+
+        n >>= 1;
+        n |= (1 << 7);
+    }
+    else
+    {
+        reset(FLAG_C);
+
+        n >>= 1;
+    }
+
+    if (n == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    reset(FLAG_N);
+    reset(FLAG_H);
+
+    clock();
+}
+
+
+/**
+ * SRA (HL)
+ */
+void gameboy_cpu::SRA()
+{
+    clock();
+    u8 n = read8(hl.r);
+    SRA(n);
+    write8(hl.r, n);
+    clock();
+}
+
+
+/**
  * BIT b, r
  *
  * @param[in] b The bit to test.
- * @param[in] r The register whose bit is being tested.
+ * @param[inout] r The register whose bit is being tested.
  */
 void gameboy_cpu::BIT(u8 b, u8 r)
 {
@@ -1807,6 +1909,21 @@ void gameboy_cpu::BIT(u8 b, u8 r)
     else
         set(FLAG_Z);
 
+    clock();
+}
+
+
+/**
+ * BIT n, (HL)
+ *
+ * @param[in] b The bit to test.
+ */
+void gameboy_cpu::BIT(u8 b)
+{
+    clock();
+    u8 n = read8(hl.r);
+    clock();
+    BIT(b, n);
     clock();
 }
 

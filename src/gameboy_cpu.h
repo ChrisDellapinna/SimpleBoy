@@ -130,8 +130,13 @@ public:
     void RRC();
     void RR(u8& n);
     void RR();
+    void SLA(u8& n);
+    void SLA();
+    void SRA(u8& n);
+    void SRA();
 
     void BIT(u8 b, u8 r);
+    void BIT(u8 b);
     void SET(u8 b, u8& r);
     void SET(u8 b);
     void RES(u8 b, u8& r);
