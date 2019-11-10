@@ -292,7 +292,7 @@ void gameboy_cpu::processInterrupts()
 {
     if (bus->ime == 1) // interrupts enabled
     {
-        u8 ier = bus->read8CPU(0xFFFF), iflag = bus->read8CPU(0xFF0F);
+        u8 ier = read8(0xFFFF), iflag = read8(0xFF0F);
         u8 irqAndEnabled = ier & iflag;//io[IO_INT_IF] & ier;
 
         if ((irqAndEnabled) != 0) // an interrupt(s) is enabled and requesting to be triggered
@@ -336,8 +336,22 @@ void gameboy_cpu::processInterrupts()
             write8(--sp, ((pc & 0xFF00) >> 8));
             write8(--sp, (pc & 0xFF));
             pc = vector;
+            halted = false;  // if we were HALT'ing, we aren't anymore
+            printf("\nNot halting anymore, int. PC Vector = %X, PC = %X", vector, pc);
         }
     }
+    else if (halted)
+    {
+        printf("\nHalted, IF = %X IE = %X, STAT = %X", read8(0xFF0F), read8(0xFFFF), read8(0xFF00 + IO_PPU_STAT));
+        if ((read8(0xFFFF) & read8(0xFF00 + IO_INT_IF)) != 0) // interrupt requested and enabled
+        {
+            halted = false;
+            printf("\nNot halting anymore, ime off but int triggered.");
+        }
+    }
+
+    if (imeEnableScheduled) // enable interrupts for the next instruction/processInterrupts
+        bus->ime = 1;
 }
 
 
@@ -461,7 +475,22 @@ void gameboy_cpu::irq(u8 interruptPos)
 */
 void gameboy_cpu::execute()
 {
-    u8 op = read8(pc++);
+    processInterrupts();
+
+    if (halted)
+    {
+        clock();
+        return;
+    }
+
+    u8 op = 0;
+    if (haltBug)
+    {
+        op = read8(pc);
+        haltBug = false;
+    }
+    else
+        op = read8(pc++);
 
     switch (op)
     {
@@ -504,6 +533,7 @@ void gameboy_cpu::execute()
         case 0x24: INC(hl.hi); break; // INC H
         case 0x25: DEC(hl.hi); break; // DEC H
         case 0x26: clock(); hl.hi = read8(pc++); break; // LD H, n
+
         case 0x28: JR(isSet(FLAG_Z)); break; // JR Z
         case 0x29: ADD_HL(hl.r); break; // ADD HL, HL
         case 0x2A: clock(); af.hi = read8(hl.r++); break; // LD A, (HLI)
@@ -582,7 +612,7 @@ void gameboy_cpu::execute()
         case 0x73: clock(); write8(hl.r, de.lo); clock(); break; // LD (HL), E
         case 0x74: clock(); write8(hl.r, hl.hi); clock(); break; // LD (HL), H
         case 0x75: clock(); write8(hl.r, hl.lo); clock(); break; // LD (HL), L
-
+        case 0x76: HALT(); break; // HALT
         case 0x77: clock(); write8(hl.r, af.hi); break; // LD (HL), A
         case 0x78: af.hi = bc.hi; break; // LD A, B
         case 0x79: af.hi = bc.lo; break; // LD A, C
@@ -821,26 +851,26 @@ void gameboy_cpu::execute()
         case 0xDF: RST(0x18); break; // RST 18
         case 0xE0: LDH_nA(); break; // LDH (n), A
         case 0xE1: POP(hl.r); break; // POP HL
-        case 0xE2: clock(); write8(0xFF00 + (u16)bc.lo, af.hi); break; // LD (C), A
+        case 0xE2: clock(); write8(0xFF00 + (u16)bc.lo, af.hi); clock(); break; // LD (C), A
 
         case 0xE5: PUSH(hl.r); break; // PUSH HL
         case 0xE6: AND_N(); break; // AND n (#)
         case 0xE7: RST(0x20); break; // RST 20
-
+        case 0xE8: ADD_SPe();  break; // ADD SP, e
         case 0xE9: JP_HL(); break; // JP (HL)
         case 0xEA: LD_nnA(); break; // LD (nn), A
 
         case 0xEE: clock(); XOR(read8(pc++)); break; // XOR n
         case 0xEF: RST(0x28); break; // RST 28
         case 0xF0: LDH_An(); break; // LDH A, (n)
-        case 0xF1: POP(af.r); break; // POP AF
-        case 0xF2: clock(); af.hi = read8(pc++); break; // LD A, (C)
+        case 0xF1: POP(af.r); af.lo &= 0xF0; break; // POP AF (mask out lower 4 bits of F as always = 0)
+        case 0xF2: clock(); af.hi = read8(0xFF00 + (u16)bc.lo); clock(); break; // LD A, (C)
         case 0xF3: DI(); break; // DI
 
         case 0xF5: PUSH(af.r); break; // PUSH AF
         case 0xF6: OR_N(); break; // OR n (imm)
         case 0xF7: RST(0x30); break; // RST 30
-        case 0xF8: LD_HL_SP_N(); break; // LDHL SP, n
+        case 0xF8: LD_HL_SPe(); break; // LDHL SP, n
         case 0xF9: LD_SPHL(); break;
         case 0xFA: LD_Ann(); break; // LD A, (nn)
         case 0xFB: EI(); break; // EI
@@ -849,8 +879,6 @@ void gameboy_cpu::execute()
 
         default: printf("\nInvalid instruction encountered at %X : %X", pc - 1, op); break;
     }
-
-    processInterrupts();
 }
 
 
@@ -898,27 +926,53 @@ void gameboy_cpu::LD_SPHL()
 /**
  * LDHL SP, n
  */
-void gameboy_cpu::LD_HL_SP_N()
+void gameboy_cpu::LD_HL_SPe()
 {
     clock();
-    s8 n = read8(pc++);
+    s8 e = read8(pc++);
+    clock();
 
     reset(FLAG_Z);
     reset(FLAG_N);
 
-    if ((s32)(sp + n) > 0xFFFF)
+    if (e >= 0)
+    {
+        if ((sp & 0xFF) + e > 0xFF)
+            set(FLAG_C);
+        else
+            reset(FLAG_C);
+
+        if ((sp & 0x0F) + (e & 0x0F) > 0x0F)
+            set(FLAG_H);
+        else
+            reset(FLAG_H);
+    }
+    else
+    {
+        if (((sp + e) & 0xFF) <= (sp & 0xFF))
+            set(FLAG_C);
+        else
+            reset(FLAG_C);
+        
+        if (((sp + e) & 0x0F) <= (sp & 0x0F))
+            set(FLAG_H);
+        else
+            reset(FLAG_H);
+    }
+
+    /*if (((sp & 0xFF) + e) > 0xFF)
         set(FLAG_C);
     else
         reset(FLAG_C);
 
-    if ((sp & 0xFFF) + n > 0xFFF)
+
+    if ((sp & 0x0F) + e4 > 0x0F)
         set(FLAG_H);
     else
-        reset(FLAG_H);
+        reset(FLAG_H);*/
 
-    hl.r = sp + n;
+    hl.r = sp + e;
 
-    clock();
     clock();
 }
 
@@ -986,15 +1040,16 @@ void gameboy_cpu::LD_nnA()
  */
 void gameboy_cpu::LD_nnSP()
 {
-    u16 targetAddr = 0;
+    u16 addr = 0;
     clock();
-    targetAddr |= read8(pc++);
+    addr |= read8(pc++);
     clock();
-    targetAddr |= (read8(pc++) << 8);
+    addr |= (read8(pc++) << 8);
     clock();
-    u8 n = read8(sp);
+    //u8 n = read8(sp);
+    write8(addr, (sp & 0xFF));
     clock();
-    write8(targetAddr, n);
+    write8(addr + 1, ((sp >> 8) & 0xFF));
     clock();
 }
 
@@ -1455,6 +1510,50 @@ void gameboy_cpu::ADD_HL(u16 n)
         reset(FLAG_H);
 
     hl.r += n;
+}
+
+
+/**
+ * ADD SP, e
+ *
+ * Carry and half carry logic from Fascia's answer here:
+ * https://stackoverflow.com/questions/5159603/gbz80-how-does-ld-hl-spe-affect-h-and-c-flags
+ */
+void gameboy_cpu::ADD_SPe()
+{
+    clock();
+    s8 e = read8(pc++);
+    clock();
+
+    if (e >= 0)
+    {
+        if (((sp & 0xFF) + e) > 0xFF)
+            set(FLAG_C);
+        else
+            reset(FLAG_C);
+
+        if (((sp & 0x0F) + (e & 0x0F)) > 0x0F)
+            set(FLAG_H);
+        else
+            reset(FLAG_H);
+    }
+    else
+    {
+        if (((sp + e) & 0xFF) <= (sp & 0xFF))
+            set(FLAG_C);
+        else
+            reset(FLAG_C);
+
+        if (((sp + e) & 0x0F) <= (sp & 0x0F))
+            set(FLAG_H);
+        else
+            reset(FLAG_H);
+    }
+
+    sp += e;
+
+    reset(FLAG_N);
+    reset(FLAG_Z);
 }
 
 
@@ -2174,9 +2273,10 @@ void gameboy_cpu::RETI()
  */
 void gameboy_cpu::DI()
 {
-    // timing of interrupt disable is WRONG
+    // timing of interrupt disable should be okay now!
     clock();
     bus->ime = 0;
+    imeEnableScheduled = false;
     printf("\nDI encountered @ %X", pc);
 }
 
@@ -2186,10 +2286,28 @@ void gameboy_cpu::DI()
  */
 void gameboy_cpu::EI()
 {
-    // timing of interrupt enabled is WRONG
+    // timing of interrupt enabled should be okay now!
     clock();
-    bus->ime = 1;
+    imeEnableScheduled = true;
     printf("\nEI encountered @ %X", pc);
+}
+
+
+/**
+ * HALT
+ *
+ * Performs the HALT instruction. The actual "HALT"ing of the processor takes place in
+ * the execute member function. This implementation emulates the "HALT bug" as described
+ * by the Cycle Accurate GameBoy Docs.
+ */
+void gameboy_cpu::HALT()
+{
+    if (bus->ime == 0 && ((read8(0xFFFF) & read8(0xFF00 + IO_INT_IF)) & 0x1F) != 0) // HALT Bug
+        haltBug = true;
+    else
+        halted = true;
+
+    printf("\nHalted! IME = %X, IE = %X, IF = %X, PC = %X", bus->ime, read8(0xFFFF), read8(0xFF00 + IO_INT_IF), pc);
 }
 
 

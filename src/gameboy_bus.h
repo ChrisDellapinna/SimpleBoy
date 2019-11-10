@@ -26,6 +26,7 @@ public:
     gameboy_cart* cartridge();
 
     u8 ime = 1;
+    bool display = false;
 
 private:
     // all the addressable memories go here

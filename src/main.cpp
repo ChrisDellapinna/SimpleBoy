@@ -132,14 +132,18 @@ int main(int argc, char *argv[])
     gb.gb_ppu.setRender(renderer, window, screen);
     bool display = false;
 
-    for (int i = 0; i < 90000000; i++)
+    for (int i = 0; i < 900000000; i++)
     {
         gb.step();
-        /*if ()
+        //printf("\nIF = %X", gb.gb_cpu.read8(0xFF00 + IO_INT_IF));
+        //if (gb.gb_cpu.pc == 0xc634)// 0x2a5)
+        //    display = true;
+
+        if (display)//gb.gb_bus.display)
         {
-            printf("\nPC: %X, @PC: %X, AF: %X, BC: %X, DE: %X, HL: %X", gb.gb_cpu.pc, gb.gb_cpu.read8(gb.gb_cpu.pc), gb.gb_cpu.af.r, gb.gb_cpu.bc.r, gb.gb_cpu.de.r, gb.gb_cpu.hl.r);
+            printf("\nPC: %X, @PC: %X, AF: %X, BC: %X, DE: %X, HL: %X, SP: %X", gb.gb_cpu.pc, gb.gb_cpu.read8(gb.gb_cpu.pc), gb.gb_cpu.af.r, gb.gb_cpu.bc.r, gb.gb_cpu.de.r, gb.gb_cpu.hl.r, gb.gb_cpu.sp);
             std::cin.ignore(80, '\n');
-        }*/
+        }
     }
 
     //SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 255, 255));

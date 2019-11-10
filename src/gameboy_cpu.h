@@ -48,6 +48,9 @@ public:
 
     //u8 ime = 1;
 
+    bool halted = false;
+    bool haltBug = false;
+    bool imeEnableScheduled = false;
     bool bootromLoaded = false;
 
     // Clock tracking related
@@ -80,7 +83,7 @@ public:
     void LD_HL_N();
     void LD(u16& n);
     void LD_SPHL();
-    void LD_HL_SP_N();
+    void LD_HL_SPe();
     void LDH_nA();
     void LDH_An();
     void LD_Ann();
@@ -111,6 +114,7 @@ public:
     void DEC_HL8();
     void DEC(u16& nn);
     void ADD_HL(u16 nn);
+    void ADD_SPe();
 
     void CPL();
     void CCF();
@@ -157,6 +161,7 @@ public:
 
     void DI();
     void EI();
+    void HALT();
 
     void SWAP(u8 &n);
     void SWAP();

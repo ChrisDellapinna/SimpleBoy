@@ -118,6 +118,9 @@ u8 gameboy_bus::read8DMA(u16 addr)
  */
 void gameboy_bus::write8CPU(u16 addr, u8 n)
 {
+    if (addr == 0x9800)
+        display = true;
+
     if (addr < 0x8000) // ROM
         cart.write8(addr, n);
     else if (addr < 0xA000) // VRAM
@@ -139,6 +142,11 @@ void gameboy_bus::write8CPU(u16 addr, u8 n)
         //printf("\nWRITE to IO $%X @ %X ", addr, pc);
         switch (addr - 0xFF00)
         {
+        case IO_JOY_P1:
+        {
+            io[IO_JOY_P1] = (0xCF | (n & 0x30)); // All buttons hardcoded to not pressed (1) for now
+            break;
+        }
         case IO_PPU_LCDC:
         {
             if ((io[IO_PPU_LCDC] >> 7) == 1 && (n >> 7) == 0) // turning screen off

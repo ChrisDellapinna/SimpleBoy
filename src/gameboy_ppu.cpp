@@ -325,8 +325,8 @@ void gameboy_ppu::fetchTile()
         
         s8 tileNum = bus->read8PPU(bgMapAddr + bgMapOffset);
         //printf("\nTile # (s): %i", tileNum);
-        tileLSB = bus->read8PPU(0x8800 + bgTileVerticalOffset + tileNum * 16);
-        tileMSB = bus->read8PPU(0x8800 + bgTileVerticalOffset + tileNum * 16 + 1);
+        tileLSB = bus->read8PPU(0x9000 + bgTileVerticalOffset + (tileNum * 16));  // pattern 0 lies at $9000
+        tileMSB = bus->read8PPU(0x9000 + bgTileVerticalOffset + (tileNum * 16) + 1);
 
     }
     else // bg data at $8000, unsigned tile number
