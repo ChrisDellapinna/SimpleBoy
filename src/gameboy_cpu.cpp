@@ -533,7 +533,7 @@ void gameboy_cpu::execute()
         case 0x24: INC(hl.hi); break; // INC H
         case 0x25: DEC(hl.hi); break; // DEC H
         case 0x26: clock(); hl.hi = read8(pc++); break; // LD H, n
-
+        case 0x27: DAA(); break; // DAA
         case 0x28: JR(isSet(FLAG_Z)); break; // JR Z
         case 0x29: ADD_HL(hl.r); break; // ADD HL, HL
         case 0x2A: clock(); af.hi = read8(hl.r++); break; // LD A, (HLI)
@@ -1352,6 +1352,42 @@ void gameboy_cpu::CP(u8 n)
         set(FLAG_Z);
     else
         reset(FLAG_Z);
+}
+
+
+/**
+ * DAA
+ *
+ * Implementation borrowed from NESDEV post by AWJ due to poor documentation
+ * https://forums.nesdev.com/viewtopic.php?f=20&t=15944#p196282/
+ */
+void gameboy_cpu::DAA()
+{
+    if (isSet(FLAG_N)) // After subtraction op
+    {
+        if (isSet(FLAG_C))
+            af.hi -= 0x60;
+        if (isSet(FLAG_H))
+            af.hi -= 0x06;
+    }
+    else // After addition op
+    {
+        if (isSet(FLAG_C) || af.hi > 0x99)
+        {
+            af.hi += 0x60;
+            set(FLAG_C);
+        }
+        if (isSet(FLAG_H) || (af.hi & 0x0F) > 0x09)
+            af.hi += 0x06;
+    }
+
+    if (af.hi == 0)
+        set(FLAG_Z);
+    else
+        reset(FLAG_Z);
+
+    reset(FLAG_H);
+    clock();
 }
 
 

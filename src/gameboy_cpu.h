@@ -106,6 +106,7 @@ public:
     void OR_N();
     void XOR(u8 n);
     void CP(u8 n);
+    void DAA();
 
     void INC(u8& n);
     void INC_HL8();
