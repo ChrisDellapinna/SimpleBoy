@@ -23,14 +23,14 @@ public:
     bool isDivReset();
     
     void irq(u8 interruptPos);
-    gameboy_cart* cartridge();
+    gameboy_cart*& cartridge();
 
     u8 ime = 1;
     bool display = false;
 
 private:
     // all the addressable memories go here
-    gameboy_cart cart;
+    gameboy_cart *cart;
 
     // Assorted emulated memory
     u8 vram[0x2000];

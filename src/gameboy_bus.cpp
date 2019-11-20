@@ -18,9 +18,9 @@ void gameboy_bus::irq(u8 interruptPos)
 
 /**
  */
-gameboy_cart* gameboy_bus::cartridge()
+gameboy_cart*& gameboy_bus::cartridge()
 {
-    return &cart;
+    return cart;
 }
 
 
@@ -33,11 +33,11 @@ gameboy_cart* gameboy_bus::cartridge()
 u8 gameboy_bus::read8CPU(u16 addr)
 {
     if (addr < 0x8000) // ROM
-        return cart.read8(addr);
+        return cart->read8(addr);
     else if (addr < 0xA000) // VRAM
         return vram[addr - 0x8000];
     else if (addr < 0xC000) // External (cart) RAM
-        return extram[addr - 0xA000];
+        return cart->read8(addr);
     else if (addr < 0xE000) // WRAM
         return wram[addr - 0xC000];
     else if (addr < 0xFE00) // WRAM mirror
@@ -122,13 +122,13 @@ void gameboy_bus::write8CPU(u16 addr, u8 n)
         display = true;
 
     if (addr < 0x8000) // ROM
-        cart.write8(addr, n);
+        cart->write8(addr, n);
     else if (addr < 0xA000) // VRAM
     {
         vram[addr - 0x8000] = n;
     }
     else if (addr < 0xC000) // External (cart) RAM
-        return;
+        cart->write8(addr, n);
     else if (addr < 0xE000) // WRAM
         wram[addr - 0xC000] = n;
     else if (addr < 0xFE00) // WRAM mirror

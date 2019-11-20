@@ -71,11 +71,10 @@ bool gameboy::init(const char *romFname)
 {
     gb_cpu.init();
     //gb_ppu.init();
-    if (!gb_bus.cartridge()->load(romFname))
-    {
-        printf("\nFailed to load ROM. \n\n");
+    gb_bus.cartridge() = make_gameboy_cart(romFname);
+
+    if (gb_bus.cartridge() == nullptr)
         return false;
-    }
 
     return true;
 }
@@ -84,7 +83,7 @@ bool gameboy::init(const char *romFname)
 /**
  * Performs one 'step' of execution of the GameBoy CPU. The number of clock
  * cycles this consumes will vary by instruction. The PPU and other devices
- * are all clocked the same amount from with the gameboy_cpu::execute()
+ * are all clocked the same amount from within the gameboy_cpu::execute()
  * function (see gameboy_cpu::execute, gameboy_cpu::clock and gameboy_ppu::clock)
  */
 void gameboy::step()
