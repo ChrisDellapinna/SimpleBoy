@@ -116,5 +116,11 @@ protected:
 gameboy_cart* make_gameboy_cart(const char* romFname);
 
 
+/**
+ * 
+ */
+u16 getSramSize(u8* rom, std::streamoff size);
+
+
 
 #endif

@@ -131,7 +131,7 @@ void gameboy_cpu::clock()
     {
         clksTimaCounter += 4;
 
-        if (clksTimaCounter >= timaTimes[tac & 3])
+        if (clksTimaCounter >= timaTimes[(tac & 3)])
         {
             clksTimaCounter = 0;  // reset counter, inc TIMA
             u8 tima = read8(0xFF00 + IO_TIM_TIMA);
@@ -146,9 +146,11 @@ void gameboy_cpu::clock()
             
             write8(0xFF00 + IO_TIM_TIMA, tima);
         }
+
+        
     }
-    else
-        clksTimaCounter = 0;
+    //else
+        //clksTimaCounter = 0;
 
     // Clock PPU
     ppu->clock();
@@ -210,80 +212,6 @@ void gameboy_cpu::clock()
 }
 
 
-/**
- * Updates the LCD four clocks, adjust ppu_clks accordingly.
- * Updates the ppu_clks four clocks and pushes out four clocks worth of pixels. Pixel pushing
- * mechanism is based off of the ones present in the Ultimate GameBoy Talk (33c3) and timing info
- * presented in the Nitty Gritty GameBoy Cycle Timing doc.
- */
- /*void gameboy_cpu::clock_ppu_lcd()
- {
-     if (drawing)
-     {
-         for (int i = 0; i < 4; i++) // four clocks worth of work
-         {
-             // If the fetcher needs to fetch a tile (or sprite), do that
-             if (!pxfifoFetcherPaused)
-             {
-                 // Each 'step' of the fetcher's data accesses takes 2clks on the main 4mhz clock so
-                 // we track how many clks have elapsed. When clksLeft = 0, ready for next access
-                 if (pxfifoFetcherClksLeft == 0)
-                 {
-                     // Grabbing the tile # from map
-                     if (pxfifoFectherStep == 0)
-                     {
-                         // Determine location of background tile map
-                         if ((io[IO_PPU_LCDC] & 8) != 0) // map is $9C00 - $9FFF
-                         {
-
-                         }
-                         else // map is $
-                         {
-
-                         }
-                     }
-                     // Grabbing first byte of tile data
-                     else if (pxfifoFetcherStep == 1)
-                     {
-
-                     }
-                     // Grabbing second byte of tile data
-                     else
-                     {
-
-                     }
-                 }
-                 else
-                     pxfifoFetcherClksLeft--;
-             }
-
-             // If the pixel FIFO has enough data in it, push a pixel to the screen
-             if (pxfifoPixelsStored > 8)
-             {
-                 // More than 8px stored, ready to push out a pixel
-                 pushPx(pxfifo & 3);
-                 pxfifo >>= 2;
-                 pxfifoPixelsStored--;
-
-                 // Pixel FIFO needs more tile data before next px push and said data is ready/fetcher is paused
-                 if (pxfifoPixelsStored == 8 && pxfifoFetcherPaused)
-                 {
-                     // The fetcher has completed fetching the next tile, copy it onto the end of fifo
-                     pxfifo |= (pxfifoFetcherData << 16);
-                     pxfifoFetcherPaused = false;
-                 }
-             }
-         }
-     }
-
-     ppu_clks += 4;
-     ppu_clks %= CLOCK_GB_SCREENREFRESH; // keep clk count within [0, CLOCK_GB_SCREENREFRESH]
-
-     if (ppu_clks == 84)
-         drawing = true;
- }*/
-
-
  /**
   * Checks for any pending interrupts and triggers them if enabled.
   * This "check" is performed after an instruction has finished executing.
@@ -293,12 +221,10 @@ void gameboy_cpu::processInterrupts()
     if (bus->ime == 1) // interrupts enabled
     {
         u8 ier = read8(0xFFFF), iflag = read8(0xFF0F);
-        u8 irqAndEnabled = ier & iflag;//io[IO_INT_IF] & ier;
+        u8 irqAndEnabled = ier & iflag;
 
         if ((irqAndEnabled) != 0) // an interrupt(s) is enabled and requesting to be triggered
         {
-            // Note this is NOT accurate emulation of how the GB handles and processes
-            // interrupts, particularly from a timing perspective
             u16 vector = 0;
             bus->ime = 0; // disable any further interrupts
 
@@ -332,21 +258,34 @@ void gameboy_cpu::processInterrupts()
                 //io[IO_INT_IF] ^= (1 << INT_JOYPAD);
             }
 
+            clock();
+            clock();
+
             // Push current pc to stack then jump
             write8(--sp, ((pc & 0xFF00) >> 8));
+            clock();
             write8(--sp, (pc & 0xFF));
+            clock();
+            clock();
             pc = vector;
             halted = false;  // if we were HALT'ing, we aren't anymore
-            printf("\nNot halting anymore, int. PC Vector = %X, PC = %X", vector, pc);
+            //printf("\nNot halting anymore, int. PC Vector = %X, PC = %X", vector, pc);
         }
     }
     else if (halted)
     {
-        printf("\nHalted, IF = %X IE = %X, STAT = %X", read8(0xFF0F), read8(0xFFFF), read8(0xFF00 + IO_PPU_STAT));
+        //printf("\nHalted, IF = %X IE = %X, STAT = %X", read8(0xFF0F), read8(0xFFFF), read8(0xFF00 + IO_PPU_STAT));
         if ((read8(0xFFFF) & read8(0xFF00 + IO_INT_IF)) != 0) // interrupt requested and enabled
         {
             halted = false;
-            printf("\nNot halting anymore, ime off but int triggered.");
+            //printf("\nNot halting anymore, ime off but int triggered.");
+        }
+    }
+    else if (stopped)
+    {
+        if (read8(0xFF00 + IO_INT_IF) != 0 || buttonPressed)
+        {
+            stopped = false;
         }
     }
 
@@ -496,67 +435,78 @@ void gameboy_cpu::execute()
     {
         case 0x00: clock();  break; // NOP
         case 0x01: LD(bc.r); break; // LD BC, nn
-        case 0x02: clock(); write8(bc.r, af.hi); break; // LD (BC), A
+        case 0x02: clock(); write8(bc.r, af.hi); clock(); break; // LD (BC), A
         case 0x03: INC(bc.r); break; // INC BC
         case 0x04: INC(bc.hi); break; // INC B
         case 0x05: DEC(bc.hi); break; // DEC B
-        case 0x06: clock(); bc.hi = read8(pc++); break; // LD B, n
+        case 0x06: clock(); bc.hi = read8(pc++); clock(); break; // LD B, n
         case 0x07: RLCA(); break; // RLCA
         case 0x08: LD_nnSP(); break; // LD (nn), SP
         case 0x09: ADD_HL(bc.r); break; // ADD HL, BC
-        case 0x0A: clock(); af.hi = read8(bc.r); break; // LD A, (BC)
+        case 0x0A: clock(); af.hi = read8(bc.r); clock(); break; // LD A, (BC)
         case 0x0B: DEC(bc.r); break; // DEC BC
         case 0x0C: INC(bc.lo); break; // INC C
         case 0x0D: DEC(bc.lo); break; // DEC C
-        case 0x0E: clock(); bc.lo = read8(pc++); break; // LD C, n
+        case 0x0E: clock(); bc.lo = read8(pc++); clock(); break; // LD C, n
         case 0x0F: RRCA(); break; // RRCA
+        case 0x10:
+        {
+            clock();
+            op = read8(pc++);
 
+            if (op == 0)
+                STOP();
+            else
+                printf("\nERROR: Invalid $10 prefix instruction encountered at $%X!", (pc - 1));
+
+            break;
+        }
         case 0x11: LD(de.r); break; // LD DE, nn
-        case 0x12: clock(); write8(de.r, af.hi); break; // LD (DE), A
+        case 0x12: clock(); write8(de.r, af.hi); clock(); break; // LD (DE), A
         case 0x13: INC(de.r); break; // INC DE
         case 0x14: INC(de.hi); break; // INC D
         case 0x15: DEC(de.hi); break; // DEC D
-        case 0x16: clock(); de.hi = read8(pc++); break; // LD D, n
+        case 0x16: clock(); de.hi = read8(pc++); clock(); break; // LD D, n
         case 0x17: RLA(); break; // RLA
         case 0x18: JR(); break; // JR n
         case 0x19: ADD_HL(de.r); break; // ADD HL, DE
-        case 0x1A: clock(); af.hi = read8(de.r); break; // LD A, (DE)
+        case 0x1A: clock(); af.hi = read8(de.r); clock(); break; // LD A, (DE)
         case 0x1B: DEC(de.r); break; // DEC DE
         case 0x1C: INC(de.lo); break; // INC E
         case 0x1D: DEC(de.lo); break; // DEC E
-        case 0x1E: clock(); de.lo = read8(pc++); break; // LD E, n
+        case 0x1E: clock(); de.lo = read8(pc++); clock(); break; // LD E, n
         case 0x1F: RRA(); break; // RRA
         case 0x20: JR(!isSet(FLAG_Z)); break; // JR NZ
         case 0x21: LD(hl.r); break; // LD HL, nn
-        case 0x22: clock(); write8(hl.r++, af.hi); break; // LD (HLI), A
+        case 0x22: clock(); write8(hl.r++, af.hi); clock(); break; // LD (HLI), A
         case 0x23: INC(hl.r); break; // INC HL
         case 0x24: INC(hl.hi); break; // INC H
         case 0x25: DEC(hl.hi); break; // DEC H
-        case 0x26: clock(); hl.hi = read8(pc++); break; // LD H, n
+        case 0x26: clock(); hl.hi = read8(pc++); clock(); break; // LD H, n
         case 0x27: DAA(); break; // DAA
         case 0x28: JR(isSet(FLAG_Z)); break; // JR Z
         case 0x29: ADD_HL(hl.r); break; // ADD HL, HL
-        case 0x2A: clock(); af.hi = read8(hl.r++); break; // LD A, (HLI)
+        case 0x2A: clock(); af.hi = read8(hl.r++); clock(); break; // LD A, (HLI)
         case 0x2B: DEC(hl.r); break; // DEC HL
         case 0x2C: INC(hl.lo); break; // INC L
         case 0x2D: DEC(hl.lo); break; // DEC L
-        case 0x2E: clock(); hl.lo = read8(pc++); break; // LD L, n
+        case 0x2E: clock(); hl.lo = read8(pc++); clock(); break; // LD L, n
         case 0x2F: CPL(); break; // CPL
         case 0x30: JR(!isSet(FLAG_C)); break; // JR NC
         case 0x31: LD(sp); break; // LD SP, nn
-        case 0x32: clock(); write8(hl.r--, af.hi); break; // LD (HLD), S
+        case 0x32: clock(); write8(hl.r--, af.hi); clock(); break; // LD (HLD), S
         case 0x33: INC(sp); break; // INC SP
-        case 0x34: INC_HL8(); break; // INC (HL)   (clock handled within member func)
+        case 0x34: INC_HL8(); break; // INC (HL)
         case 0x35: DEC_HL8(); break; // DEC (HL)
         case 0x36: LD_HL_N(); break; // LD (HL), n
         case 0x37: SCF(); break; // SCF
         case 0x38: JR(isSet(FLAG_C)); break; // JR C
         case 0x39: ADD_HL(sp); break; // ADD HL, SP
-        case 0x3A: clock(); af.hi = read8(hl.r--); break; // LD A, (HLD)
+        case 0x3A: clock(); af.hi = read8(hl.r--); clock(); break; // LD A, (HLD)
         case 0x3B: DEC(sp); break; // DEC SP
         case 0x3C: INC(af.hi); break; // INC A
         case 0x3D: DEC(af.hi); break; // DEC A
-        case 0x3E: clock(); af.hi = read8(pc++); break; // LD A, n
+        case 0x3E: clock(); af.hi = read8(pc++); clock(); break; // LD A, n
         case 0x3F: CCF(); break; // CCF
         case 0x40: clock(); break;  // LD B, B
         case 0x41: bc.hi = bc.lo; clock(); break; // LD B, C
@@ -565,7 +515,7 @@ void gameboy_cpu::execute()
         case 0x44: bc.hi = hl.hi; clock(); break; // LD B, H
         case 0x45: bc.hi = hl.lo; clock(); break; // LD B, L
         case 0x46: clock(); bc.hi = read8(hl.r); clock(); break; // LD B, (HL)
-        case 0x47: bc.hi = af.hi; break; // LD B, A
+        case 0x47: bc.hi = af.hi; clock(); break; // LD B, A
         case 0x48: bc.lo = bc.hi; clock(); break; // LD C, B
         case 0x49: clock(); break; // LD C, C
         case 0x4A: bc.lo = de.hi; clock(); break; // LD C, D
@@ -573,7 +523,7 @@ void gameboy_cpu::execute()
         case 0x4C: bc.lo = hl.hi; clock(); break; // LD C, H
         case 0x4D: bc.lo = hl.lo; clock(); break; // LD C, L
         case 0x4E: clock(); bc.lo = read8(hl.r); clock(); break; // LD C, (HL)
-        case 0x4F: bc.lo = af.hi; break; // LD C, A
+        case 0x4F: bc.lo = af.hi; clock(); break; // LD C, A
         case 0x50: de.hi = bc.hi; clock(); break; // LD D, B
         case 0x51: de.hi = bc.lo; clock(); break; // LD D, C
         case 0x52: clock(); break; // LD D, D
@@ -581,7 +531,7 @@ void gameboy_cpu::execute()
         case 0x54: de.hi = hl.hi; clock(); break; // LD D, H
         case 0x55: de.hi = hl.lo; clock(); break; // LD D, L
         case 0x56: clock(); de.hi = read8(hl.r); clock(); break; // LD D, (HL)
-        case 0x57: de.hi = af.hi; break; // LD D, A
+        case 0x57: de.hi = af.hi; clock(); break; // LD D, A
         case 0x58: de.lo = bc.hi; clock(); break; // LD E, B
         case 0x59: de.lo = bc.lo; clock(); break; // LD E, C
         case 0x5A: de.lo = de.hi; clock(); break; // LD E, D
@@ -589,7 +539,7 @@ void gameboy_cpu::execute()
         case 0x5C: de.lo = hl.hi; clock(); break; // LD E, H
         case 0x5D: de.lo = hl.lo; clock(); break; // LD E, L
         case 0x5E: clock(); de.lo = read8(hl.r); clock(); break; // LD E, (HL)
-        case 0x5F: de.lo = af.hi; break; // LD E, A
+        case 0x5F: de.lo = af.hi; clock(); break; // LD E, A
         case 0x60: hl.hi = bc.hi; clock(); break; // LD H, B
         case 0x61: hl.hi = bc.lo; clock(); break; // LD H, C
         case 0x62: hl.hi = de.hi; clock(); break; // LD H, D
@@ -597,7 +547,7 @@ void gameboy_cpu::execute()
         case 0x64: clock(); break; // LD H, H
         case 0x65: hl.hi = hl.lo; clock(); break; // LD H, L
         case 0x66: clock(); hl.hi = read8(hl.r); clock(); break; // LD H, (HL)
-        case 0x67: hl.hi = af.hi; break; // LD H, A
+        case 0x67: hl.hi = af.hi; clock(); break; // LD H, A
         case 0x68: hl.lo = bc.hi; clock(); break; // LD L, B
         case 0x69: hl.lo = bc.lo; clock(); break; // LD L, C
         case 0x6A: hl.lo = de.hi; clock(); break; // LD L, D
@@ -605,7 +555,7 @@ void gameboy_cpu::execute()
         case 0x6C: hl.lo = hl.hi; clock(); break; // LD L, H
         case 0x6D: clock(); break; // LD L, L
         case 0x6E: clock(); hl.lo = read8(hl.r); clock(); break; // LD L, (HL)
-        case 0x6F: hl.lo = af.hi; break; // LD L, A
+        case 0x6F: hl.lo = af.hi; clock(); break; // LD L, A
         case 0x70: clock(); write8(hl.r, bc.hi); clock(); break; // LD (HL), B
         case 0x71: clock(); write8(hl.r, bc.lo); clock(); break; // LD (HL), C
         case 0x72: clock(); write8(hl.r, de.hi); clock(); break; // LD (HL), D
@@ -613,15 +563,15 @@ void gameboy_cpu::execute()
         case 0x74: clock(); write8(hl.r, hl.hi); clock(); break; // LD (HL), H
         case 0x75: clock(); write8(hl.r, hl.lo); clock(); break; // LD (HL), L
         case 0x76: HALT(); break; // HALT
-        case 0x77: clock(); write8(hl.r, af.hi); break; // LD (HL), A
-        case 0x78: af.hi = bc.hi; break; // LD A, B
-        case 0x79: af.hi = bc.lo; break; // LD A, C
-        case 0x7A: af.hi = de.hi; break; // LD A, D
-        case 0x7B: af.hi = de.lo; break; // LD A, E
-        case 0x7C: af.hi = hl.hi; break; // LD A, H
-        case 0x7D: af.hi = hl.lo; break; // LD A, L
-        case 0x7E: clock(); af.hi = read8(hl.r); break; // LD A, (HL)
-        case 0x7F: break; // LD A, A (does nothing)
+        case 0x77: clock(); write8(hl.r, af.hi); clock(); break; // LD (HL), A
+        case 0x78: af.hi = bc.hi; clock(); break; // LD A, B
+        case 0x79: af.hi = bc.lo; clock(); break; // LD A, C
+        case 0x7A: af.hi = de.hi; clock(); break; // LD A, D
+        case 0x7B: af.hi = de.lo; clock(); break; // LD A, E
+        case 0x7C: af.hi = hl.hi; clock(); break; // LD A, H
+        case 0x7D: af.hi = hl.lo; clock(); break; // LD A, L
+        case 0x7E: clock(); af.hi = read8(hl.r); clock(); break; // LD A, (HL)
+        case 0x7F: clock(); break; // LD A, A (does nothing)
         case 0x80: ADD(bc.hi); break; // ADD A, B
         case 0x81: ADD(bc.lo); break; // ADD A, C
         case 0x82: ADD(de.hi); break; // ADD A, D
@@ -636,7 +586,7 @@ void gameboy_cpu::execute()
         case 0x8B: ADC(de.lo); break; // ADC A, E
         case 0x8C: ADC(hl.hi); break; // ADC A, H
         case 0x8D: ADC(hl.lo); break; // ADC A, L
-        case 0x8E: clock();  ADC(read8(hl.r)); break; // ADC A, (HL)
+        case 0x8E: clock(); ADC(read8(hl.r)); break; // ADC A, (HL)
         case 0x8F: ADC(af.hi); break; // ADC A, A
         case 0x90: SUB(bc.hi); break; // SUB A, B
         case 0x91: SUB(bc.lo); break; // SUB A, C
@@ -684,7 +634,7 @@ void gameboy_cpu::execute()
         case 0xBB: CP(de.lo); break; // CP E
         case 0xBC: CP(hl.hi); break; // CP H
         case 0xBD: CP(hl.lo); break; // CP L
-        case 0xBE: clock();  CP(read8(hl.r)); break; // CP (HL)
+        case 0xBE: clock(); CP(read8(hl.r)); break; // CP (HL)
         case 0xBF: CP(af.hi); break; // CP A
         case 0xC0: RET(!isSet(FLAG_Z)); break; // RET NZ
         case 0xC1: POP(bc.r); break; // POP BC
@@ -1434,7 +1384,7 @@ void gameboy_cpu::INC_HL8()
     else
         reset(FLAG_H);
 
-    write8(hl.r, ++n);  // clock for this is performed outside in execute
+    write8(hl.r, ++n);
 
     if (n == 0)
         set(FLAG_Z);
@@ -1559,6 +1509,8 @@ void gameboy_cpu::ADD_SPe()
 {
     clock();
     s8 e = read8(pc++);
+    clock();
+    clock();
     clock();
 
     if (e >= 0)
@@ -2049,9 +2001,7 @@ void gameboy_cpu::BIT(u8 b)
 {
     clock();
     u8 n = read8(hl.r);
-    clock();
     BIT(b, n);
-    clock();
 }
 
 
@@ -2139,7 +2089,6 @@ void gameboy_cpu::JP(bool take)
     }
     else
     {
-        clock();
         clock();
         clock();
         clock();
@@ -2313,7 +2262,7 @@ void gameboy_cpu::DI()
     clock();
     bus->ime = 0;
     imeEnableScheduled = false;
-    printf("\nDI encountered @ %X", pc);
+    //printf("\nDI encountered @ %X", pc);
 }
 
 
@@ -2325,7 +2274,7 @@ void gameboy_cpu::EI()
     // timing of interrupt enabled should be okay now!
     clock();
     imeEnableScheduled = true;
-    printf("\nEI encountered @ %X", pc);
+    //printf("\nEI encountered @ %X", pc);
 }
 
 
@@ -2343,7 +2292,19 @@ void gameboy_cpu::HALT()
     else
         halted = true;
 
-    printf("\nHalted! IME = %X, IE = %X, IF = %X, PC = %X", bus->ime, read8(0xFFFF), read8(0xFF00 + IO_INT_IF), pc);
+    //printf("\nHalted! IME = %X, IE = %X, IF = %X, PC = %X", bus->ime, read8(0xFFFF), read8(0xFF00 + IO_INT_IF), pc);
+}
+
+
+/**
+ * STOP
+ *
+ *
+ */
+void gameboy_cpu::STOP()
+{
+    //stopped = true;
+    printf("\nSTOP OCCURRED AT $%X.", pc);
 }
 
 

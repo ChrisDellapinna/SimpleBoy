@@ -10,7 +10,7 @@
 class gameboy_bus
 {
 public:
-    gameboy_bus() {};
+    gameboy_bus(bool dmg=true);
 
     u8 read8CPU(u16 addr);
     u8 read8PPU(u16 addr);
@@ -21,6 +21,8 @@ public:
     
     void updateDiv(u8 div);
     bool isDivReset();
+
+    void updateJoypad(bool pressedDown, bool pressedUp, bool pressedLeft, bool pressedRight, bool pressedStart, bool pressedSelect, bool pressedB, bool pressedA);
     
     void irq(u8 interruptPos);
     gameboy_cart*& cartridge();

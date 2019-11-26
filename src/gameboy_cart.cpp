@@ -173,7 +173,7 @@ u8 gameboy_cart_mbc1::read8(u16 addr)
     else if (addr < 0x8000)
     {
         u32 index = (0x4000 * romBankSelected) + (addr - 0x4000);
-        printf("\nREAD ROM: $%X", index);
+        //printf("\nREAD ROM: $%X", index);
         return rom[index];
     }
     else if (addr >= 0xA000 && addr < 0xC000)
@@ -254,16 +254,28 @@ gameboy_cart_mbc3::gameboy_cart_mbc3(u8* rom_data, std::streamoff rom_size, bool
     rom = rom_data;
     romSize = rom_size;
 
-    if (sramSize != 0)
+    sramBankSelected = 0;
+    //sramBankMax = ;
+
+    if (hasSRAM)
     {
-        sram = new u8[sramSize];
+        sramSize = getSramSize(rom, romSize);
+        if (sramSize == 0)
+        {
+            printf("\nERROR: MBC3 SRAM size data invalid. SRAM specified but ROM header says SRAM size = 0.");
+            hasSRAM = false;
+        }
+        else
+        {
+            sram = new u8[sramSize];
+        }
     }
 }
 
 
 gameboy_cart_mbc3::~gameboy_cart_mbc3()
 {
-
+    
 }
 
 
@@ -274,27 +286,21 @@ u8 gameboy_cart_mbc3::read8(u16 addr)
     else if (addr < 0x8000)
     {
         u32 index = (0x4000 * romBankSelected) + (addr - 0x4000);
-        printf("\nREAD ROM: $%X", index);
+        //printf("\nREAD ROM: $%X", index);
         return rom[index];
     }
     else if (addr >= 0xA000 && addr < 0xC000)
     {
-        if (sram != nullptr)
+        if (hasSRAM && sramEnabled && sram != nullptr)
         {
-            u32 index = addr - 0xA000;
-
-            if (sramSize < index)
-                return sram[index];
-            else
-            {
-                printf("\nERROR: Read from out of bounds SRAM location.");
-            }
+            if ((addr - 0xA000) < sramSize)
+                return sram[sramBankSelected * 0x2000 + (addr - 0xA000)];
         }
         else
-            printf("\nERROR: Read from SRAM when none present in cart.");
+            printf("\nERROR: Read from SRAM when none present in cart or SRAM IO disabled.");
     }
 
-    printf("\nERROR: Invalid byte read from SRAM. Returned $FF.");
+    printf("\nERROR: Invalid read from cart requested. Returned $FF.");
     return 0xFF;
 }
 
@@ -320,7 +326,10 @@ void gameboy_cart_mbc3::write8(u16 addr, u8 n)
     {
         if (n < 4) // Selecting SRAM bank
         {
-            sramBankSelected = n;
+            if (sramBankSelected >= (sramSize / 0x2000))
+                sramBankSelected = 0;
+            else
+                sramBankSelected = n;
         }
         else // Selecting RTC register to access
         {
@@ -340,7 +349,7 @@ void gameboy_cart_mbc3::write8(u16 addr, u8 n)
     {
         if (sramEnabled)
         {
-
+            sram[sramBankSelected * 0x2000 + (addr - 0xA000)] = n;
         }
     }
 }
@@ -403,4 +412,24 @@ gameboy_cart* make_gameboy_cart(const char* romFname)
         return nullptr;
     }
 }
+
+
+u16 getSramSize(u8* rom, std::streamoff size)
+{
+    if (rom == nullptr || size < 0x150)
+        return 0;  // invalid rom data
+    else
+    {
+        switch (rom[0x149])
+        {
+        case 0: return 0; break;        // none
+        case 1: return 0x800; break;    // 2K
+        case 2: return 0x2000; break;   // 8K
+        case 3: return 0x8000; break;   // 32K
+
+        default: return 0; break;  // invalid sram size
+        }
+    }
+}
+
 

@@ -11,6 +11,37 @@
 /**
  *
  */
+gameboy_bus::gameboy_bus(bool dmg)
+{
+    if (dmg)
+    {
+        io[IO_TIM_TIMA] = 0;
+        io[IO_TIM_TMA] = 0;
+        io[IO_TIM_TAC] = 0;
+
+        io[IO_SND_NR52] = 0xF1;
+
+        io[IO_PPU_SCX] = 0;
+        io[IO_PPU_SCY] = 0;
+        io[IO_PPU_LYC] = 0;
+        io[IO_PPU_BGP] = 0xFC;
+        io[IO_PPU_OBP0] = 0xFF;
+        io[IO_PPU_OBP1] = 0xFF;
+        io[IO_PPU_WY] = 0;
+        io[IO_PPU_WX] = 0;
+
+        ier = 0;
+    }
+    else
+    {
+        printf("\nWARNING: Non-DMG mode not supported by gameboy_bus.");
+    }
+}
+
+
+/**
+ *
+ */
 void gameboy_bus::irq(u8 interruptPos)
 {
     write8PPU(0xFF0F, read8PPU(0xFF0F) | (1 << interruptPos));
@@ -109,7 +140,21 @@ u8 gameboy_bus::read8PPU(u16 addr)
  */
 u8 gameboy_bus::read8DMA(u16 addr)
 {
-    return 0;
+    if (addr < 0x8000) // ROM
+        return cart->read8(addr);
+    else if (addr < 0xA000) // VRAM
+        return vram[addr - 0x8000];
+    else if (addr < 0xC000) // External (cart) RAM
+        return cart->read8(addr);
+    else if (addr < 0xE000) // WRAM
+        return wram[addr - 0xC000];
+    else if (addr < 0xFE00) // WRAM mirror
+        return wram[addr - 0xE000];
+    else
+    {
+        printf("\nERROR: Invalid DMA read!");
+        return 0xFF;
+    }
 }
 
 
@@ -130,7 +175,11 @@ void gameboy_bus::write8CPU(u16 addr, u8 n)
     else if (addr < 0xC000) // External (cart) RAM
         cart->write8(addr, n);
     else if (addr < 0xE000) // WRAM
+    {
         wram[addr - 0xC000] = n;
+        //printf("\nCPU Write to WRAM : $%X @ $%X", n, addr);
+
+    }
     else if (addr < 0xFE00) // WRAM mirror
         wram[addr - 0xE000] = n;
     else if (addr < 0xFEA0) // OAM
@@ -162,8 +211,20 @@ void gameboy_bus::write8CPU(u16 addr, u8 n)
         case IO_PPU_LY: break; // read only
         case IO_PPU_DMA:
         {
-            printf("\nOAM DMA occurred! ");
+            //printf("\nOAM DMA occurred! ");
             io[IO_PPU_DMA] = n;
+
+            if (n <= 0xF1)
+            {
+                u16 src = (n << 8);
+
+                for (int i = 0; i < 0x9F; i++)
+                    oam[i] = read8DMA(src + i);
+            }
+            else
+            {
+                printf("\nERROR: Invalid OAM DMA src specified (> $F1)!");
+            }
 
             //oam_dma_active = true;
             //oam_dma_clks = 0;
@@ -231,6 +292,16 @@ bool gameboy_bus::isDivReset()
     }
     else
         return false;
+}
+
+
+/**
+ *
+ */
+void gameboy_bus::updateJoypad(bool pressedDown, bool pressedUp, bool pressedLeft, bool pressedRight,
+    bool pressedStart, bool pressedSelect, bool pressedB, bool pressedA)
+{
+
 }
 
 

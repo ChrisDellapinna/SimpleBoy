@@ -17,7 +17,7 @@ class gameboy_cpu
 {
 public:
     //gameboy_cpu() {}
-    gameboy_cpu(gameboy_bus* b) : bus(b) {}
+    gameboy_cpu(gameboy_bus* b) : bus(b) { clksDivCounter = 0xABCC; }
     ~gameboy_cpu() {}
 
     bool init();
@@ -48,8 +48,7 @@ public:
 
     //u8 ime = 1;
 
-    bool halted = false;
-    bool haltBug = false;
+    bool halted = false, haltBug = false, stopped = false;
     bool imeEnableScheduled = false;
     bool bootromLoaded = false;
 
@@ -60,6 +59,9 @@ public:
     u16 timaTimes[4] = {1024, 16, 64, 256};
     u16 clksDivCounter = 0;
     u16 clksTimaCounter = 0;
+
+    // Joypad related
+    bool buttonPressed = false;
 
 
     // OAM DMA
@@ -163,6 +165,7 @@ public:
     void DI();
     void EI();
     void HALT();
+    void STOP();
 
     void SWAP(u8 &n);
     void SWAP();

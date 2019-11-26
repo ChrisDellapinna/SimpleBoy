@@ -107,6 +107,8 @@ int main(int argc, char *argv[])
     SDL_Window *window = NULL;
     SDL_Surface *screen = NULL;
     SDL_Renderer* renderer = NULL;
+    SDL_Event e;
+    bool running = true;
     //SDL_Rect r;
 
     if (SDL_Init(SDL_INIT_VIDEO))
@@ -131,89 +133,36 @@ int main(int argc, char *argv[])
     gb.gb_ppu.setRender(renderer, window, screen);
     bool display = false;
 
-    for (int i = 0; i < 900000000; i++)
+    while (running)
+    {
+        while (SDL_PollEvent(&e) != 0)
+        {
+            if (e.type == SDL_QUIT)  // Window X'ed out
+                running = false;
+        }
+
+        for (int i = 0; i < (CLOCK_GB_SCREENREFRESH/4); i++)
+        {
+            gb.step();
+        }
+    }
+
+    SDL_Quit();
+
+    /*for (int i = 0; i < 900000000; i++)
     {
         gb.step();
         //printf("\nIF = %X", gb.gb_cpu.read8(0xFF00 + IO_INT_IF));
-        //if (gb.gb_cpu.pc == 0xc634)// 0x2a5)
+        //if (gb.gb_cpu.pc == 0xc2a6)// 0x2a5)
         //    display = true;
 
         if (display)//gb.gb_bus.display)
         {
-            printf("\nPC: %X, @PC: %X, AF: %X, BC: %X, DE: %X, HL: %X, SP: %X", gb.gb_cpu.pc, gb.gb_cpu.read8(gb.gb_cpu.pc), gb.gb_cpu.af.r, gb.gb_cpu.bc.r, gb.gb_cpu.de.r, gb.gb_cpu.hl.r, gb.gb_cpu.sp);
+            printf("\nPC: %X, @PC: %X, AF: %X, BC: %X, DE: %X, HL: %X, SP: %X, TIMA: %X", gb.gb_cpu.pc, gb.gb_cpu.read8(gb.gb_cpu.pc), gb.gb_cpu.af.r, gb.gb_cpu.bc.r, gb.gb_cpu.de.r, gb.gb_cpu.hl.r, gb.gb_cpu.sp, gb.gb_cpu.read8(0xFF00 + IO_TIM_TIMA));
             std::cin.ignore(80, '\n');
         }
-    }
-
-    //SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 255, 255, 255));
-
-    /*for (int x = 0; x < 32; x++) // tile's x coord ( * 8) in the background map
-    {
-        for (int y = 0; y < 4; y++) // tile's y coord ( * 8) ...
-        {
-            for (int py = 0; py < 8; py++) // p from 0 ... 7 for each of the two bytes making up a ln of px data
-            {
-                u8 pxlsb = gb.vram[0x0000 + y * 32 * 16 + x * 16 + py * 2],
-                    pxmsb = gb.vram[0x0000 + y * 32 * 16 + x * 16 + py * 2 + 1];
-
-                for (int px = 0; px < 8; px++) // relative x coord of the tile
-                {
-                    //SDL_RenderClear(renderer);
-
-                    
-                    //r.x = 4;//(x * 8 + px);
-                    //r.y = 4;//(y * 8 + py);
-                    //r.w = 5;
-                    //r.h = 5;
-
-                    u8 col = (pxlsb >> (7 - px) & 1) | ((pxmsb >> (7 - px) & 1) << 1);
-                    printf("%X ", col);
-                    col <<= 6; // close enough..
-
-                    SDL_SetRenderDrawColor(renderer, col, col, col, 255);
-                    if (SDL_RenderDrawPoint(renderer, (x * 8 + px), (y * 8 + py)) < 0)
-                        printf("\n\nSDL Error: %s", SDL_GetError());
-                    //SDL_RenderFillRect(renderer, &r);
-                    
-                }
-                printf("\n");
-            }
-            printf("\n");
-        }
-    }
-    SDL_RenderPresent(renderer);  // update screen
-
-    for (int i = 0; i < 0x1800; i++)
-    {
-        printf("%X ", gb.vram[i]);
     }*/
 
-    //SDL_UpdateWindowSurface(window);
-    /*SDL_RenderPresent(renderer);
-
-    SDL_Delay(20000);
-    SDL_Quit();*/
-
-    
-
-    /*for (int i = 0; i < 600000; i++)
-    {
-        if (gb.pc == 0x63b)
-        {
-            while (true)
-            {
-                printf("\n%X @ %X\tSP: %X  AF: %X  BC: %X  DE: %X  HL: %X \tClks elasped: %i, PPU clks: %i, LY: %i, STAT mode: %i, STAT: %X, LCDC: %X, LYC: %X, IF: %X, IE: %X",
-                    gb.read8(gb.pc), gb.pc, gb.sp, gb.af.r, gb.bc.r, gb.de.r, gb.hl.r, gb.clks, gb.ppu_clks, gb.io[IO_PPU_LY], (gb.io[IO_PPU_STAT] & 3),
-                    gb.io[IO_PPU_STAT], gb.io[IO_PPU_LCDC], gb.io[IO_PPU_LYC], gb.io[IO_INT_IF], gb.ier);
-                gb.execute();
-                std::cin.ignore(80, '\n');
-            }
-        }
-        gb.execute();
-    }
-
-    printf("\n\nEmulation finished. Hit Enter (Return) key to exit.\n");
-    std::cin.ignore(80, '\n');*/
 
     return 0;
 }
