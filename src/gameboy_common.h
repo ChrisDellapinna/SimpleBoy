@@ -112,6 +112,19 @@ typedef signed int s32;
 
 #define GB_TIMER_DIV_FREQ 16384
 
+#define JOYPAD_A 0
+#define JOYPAD_B 1
+#define JOYPAD_SELECT 2
+#define JOYPAD_START 3
+#define JOYPAD_RIGHT 0
+#define JOYPAD_LEFT 1
+#define JOYPAD_UP 2
+#define JOYPAD_DOWN 3
+#define JOYPAD_SELECT_BUTTON 5
+#define JOYPAD_SELECT_DIRECTION 4
+#define JOYPAD_PRESSED 0
+#define JOYPAD_RELEASED 1
+
 
 /**
  * Define the general register format used by the GameBoy processor.
@@ -126,6 +139,7 @@ union reg
         u8 hi;
     };
 };
+
 
 
 #endif

@@ -30,6 +30,8 @@ gameboy_bus::gameboy_bus(bool dmg)
         io[IO_PPU_WY] = 0;
         io[IO_PPU_WX] = 0;
 
+        io[IO_JOY_P1] = 0x3F;
+
         ier = 0;
     }
     else
@@ -193,7 +195,15 @@ void gameboy_bus::write8CPU(u16 addr, u8 n)
         {
         case IO_JOY_P1:
         {
-            io[IO_JOY_P1] = (0xCF | (n & 0x30)); // All buttons hardcoded to not pressed (1) for now
+            io[IO_JOY_P1] = (n & 0x30);
+            u8 pressedButtons = 0;// (~joypadButtons) | (~joypadDirection);
+            if (((io[IO_JOY_P1] >> JOYPAD_SELECT_BUTTON) & 1) == 0)
+                pressedButtons |= (~joypadButtons);
+            if (((io[IO_JOY_P1] >> JOYPAD_SELECT_DIRECTION) & 1) == 0)
+                pressedButtons |= (~joypadDirection);
+            pressedButtons = ~pressedButtons;
+            io[IO_JOY_P1] |= (pressedButtons & 0xF);
+
             break;
         }
         case IO_PPU_LCDC:
@@ -298,10 +308,95 @@ bool gameboy_bus::isDivReset()
 /**
  *
  */
-void gameboy_bus::updateJoypad(bool pressedDown, bool pressedUp, bool pressedLeft, bool pressedRight,
-    bool pressedStart, bool pressedSelect, bool pressedB, bool pressedA)
+void gameboy_bus::updateJoypadPressed(u8 button, bool directionButton)
 {
+    if (directionButton)
+    {
+        if (((io[IO_JOY_P1] >> JOYPAD_SELECT_DIRECTION) & 1) == 0)
+        {
+            // Direction button (dpad) pressed and selected, reset respective button
+            io[IO_JOY_P1] |= (1 << button);
+            io[IO_JOY_P1] ^= (1 << button);
+            
+            irq(INT_JOYPAD);
+        }
 
+        joypadDirection |= (1 << button);
+        joypadDirection ^= (1 << button);
+    }
+    else
+    {
+        if (((io[IO_JOY_P1] >> JOYPAD_SELECT_BUTTON) & 1) == 0)
+        {
+            // A/B/Start/Select button pressed and select, reset respective button
+            io[IO_JOY_P1] |= (1 << button);
+            io[IO_JOY_P1] ^= (1 << button);
+            
+            irq(INT_JOYPAD);
+        }
+
+        joypadButtons |= (1 << button);
+        joypadButtons ^= (1 << button);
+    }
+}
+
+
+void gameboy_bus::updateJoypadReleased(u8 button, bool directionButton)
+{
+    if (directionButton)
+    {
+        if (((io[IO_JOY_P1] >> JOYPAD_SELECT_DIRECTION) & 1) == 0)
+        {
+            if (((io[IO_JOY_P1] >> JOYPAD_SELECT_BUTTON) & 1) == 0)
+            {
+                if (((joypadButtons >> button) & 1) == 0)
+                {
+                    // Display the value of the resepective selected button (pressed), set internal var
+                    io[IO_JOY_P1] |= (1 << button);
+                    io[IO_JOY_P1] ^= (1 << button);
+                }
+                else
+                {
+                    // Respective button unpressed in both dpad and buttons
+                    io[IO_JOY_P1] |= (1 << button);
+                }
+            }
+            else
+            {
+                // Dpad selected to be displayed, buttons not. Set respective bit
+                io[IO_JOY_P1] |= (1 << button);
+            }
+        }
+
+        joypadDirection |= (1 << button);
+    }
+    else
+    {
+        if (((io[IO_JOY_P1] >> JOYPAD_SELECT_BUTTON) & 1) == 0)
+        {
+            if (((io[IO_JOY_P1] >> JOYPAD_SELECT_DIRECTION) & 1) == 0)
+            {
+                if (((joypadDirection >> button) & 1) == 0)
+                {
+                    // Display the value of the respective selection dpad button (pressed), set internal var
+                    io[IO_JOY_P1] |= (1 << button);
+                    io[IO_JOY_P1] ^= (1 << button);
+                }
+                else
+                {
+                    // Respective button unpressed in both
+                    io[IO_JOY_P1] |= (1 << button);
+                }
+            }
+            else
+            {
+                // Buttons selected to be displayed, dpad not. Set respective bit
+                io[IO_JOY_P1] |= (1 << button);
+            }
+        }
+
+        joypadButtons |= (1 << button);
+    }
 }
 
 

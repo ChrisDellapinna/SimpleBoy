@@ -108,6 +108,8 @@ int main(int argc, char *argv[])
     SDL_Surface *screen = NULL;
     SDL_Renderer* renderer = NULL;
     SDL_Event e;
+    bool upPressed = false, downPressed = false, leftPressed = false, rightPressed = false, 
+        cPressed = false, xPressed = false, zPressed = false, spacePressed = false;
     bool running = true;
     //SDL_Rect r;
 
@@ -117,7 +119,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    window = SDL_CreateWindow("SimpleBoy", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 256, 256, SDL_WINDOW_SHOWN);
+    window = SDL_CreateWindow("SimpleBoy", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, GB_LCD_XPIXELS, GB_LCD_YPIXELS, SDL_WINDOW_SHOWN);
 
     if (window == NULL)
     {
@@ -139,6 +141,139 @@ int main(int argc, char *argv[])
         {
             if (e.type == SDL_QUIT)  // Window X'ed out
                 running = false;
+            else if (e.type == SDL_KEYDOWN) // keyboard button pressed
+            {
+                switch (e.key.keysym.sym)
+                {
+                    case SDLK_UP:
+                    {
+                        if (!upPressed)
+                        {
+                            gb.gb_bus.updateJoypadPressed(JOYPAD_UP, true);
+                            upPressed = true;
+                        }                        
+                        break;
+                    }
+                    case SDLK_DOWN:
+                    {
+                        if (!downPressed)
+                        {
+                            gb.gb_bus.updateJoypadPressed(JOYPAD_DOWN, true);
+                            downPressed = true;
+                        }
+                        break;
+                    }
+                    case SDLK_LEFT:
+                    {
+                        if (!leftPressed)
+                        {
+                            gb.gb_bus.updateJoypadPressed(JOYPAD_LEFT, true);
+                            leftPressed = true;
+                        }
+                        break;
+                    }
+                    case SDLK_RIGHT:
+                    {
+                        if (!rightPressed)
+                        {
+                            gb.gb_bus.updateJoypadPressed(JOYPAD_RIGHT, true);
+                            rightPressed = true;
+                        }
+                        break;
+                    }
+                    case SDLK_c:
+                    {
+                        if (!cPressed)
+                        {
+                            gb.gb_bus.updateJoypadPressed(JOYPAD_A, false);
+                            cPressed = true;
+                        }
+                        break;
+                    }
+                    case SDLK_x:
+                    {
+                        if (!xPressed)
+                        {
+                            gb.gb_bus.updateJoypadPressed(JOYPAD_B, false);
+                            xPressed = true;
+                        }
+                        break;
+                    }
+                    case SDLK_z:
+                    {
+                        if (!zPressed)
+                        {
+                            gb.gb_bus.updateJoypadPressed(JOYPAD_SELECT, false);
+                            zPressed = true;
+                        }
+                        break;
+                    }
+                    case SDLK_SPACE:
+                    {
+                        if (!spacePressed)
+                        {
+                            gb.gb_bus.updateJoypadPressed(JOYPAD_START, false);
+                            spacePressed = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            else if (e.type == SDL_KEYUP) // keyboard button released
+            {
+                switch (e.key.keysym.sym)
+                {
+                    case SDLK_UP:
+                    {
+                        printf("\nUP PRESSED");
+                        gb.gb_bus.updateJoypadReleased(JOYPAD_UP, true);
+                        upPressed = false;
+                        break;
+                    }
+                    case SDLK_DOWN:
+                    {
+                        gb.gb_bus.updateJoypadReleased(JOYPAD_DOWN, true);
+                        downPressed = false;
+                        break;
+                    }
+                    case SDLK_LEFT:
+                    {
+                        gb.gb_bus.updateJoypadReleased(JOYPAD_LEFT, true);
+                        leftPressed = false;
+                        break;
+                    }
+                    case SDLK_RIGHT:
+                    {
+                        gb.gb_bus.updateJoypadReleased(JOYPAD_RIGHT, true);
+                        rightPressed = false;
+                        break;
+                    }
+                    case SDLK_c:
+                    {
+                        gb.gb_bus.updateJoypadReleased(JOYPAD_A, false);
+                        cPressed = false;
+                        break;
+                    }
+                    case SDLK_x:
+                    {
+                        gb.gb_bus.updateJoypadReleased(JOYPAD_B, false);
+                        xPressed = false;
+                        break;
+                    }
+                    case SDLK_z:
+                    {
+                        gb.gb_bus.updateJoypadReleased(JOYPAD_SELECT, false);
+                        zPressed = false;
+                        break;
+                    }
+                    case SDLK_SPACE:
+                    {
+                        gb.gb_bus.updateJoypadReleased(JOYPAD_START, false);
+                        spacePressed = false;
+                        break;
+                    }
+                }
+            }
         }
 
         for (int i = 0; i < (CLOCK_GB_SCREENREFRESH/4); i++)

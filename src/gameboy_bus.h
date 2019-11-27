@@ -22,7 +22,8 @@ public:
     void updateDiv(u8 div);
     bool isDivReset();
 
-    void updateJoypad(bool pressedDown, bool pressedUp, bool pressedLeft, bool pressedRight, bool pressedStart, bool pressedSelect, bool pressedB, bool pressedA);
+    void updateJoypadPressed(u8 button, bool directionButton);
+    void updateJoypadReleased(u8 button, bool directionButton);
     
     void irq(u8 interruptPos);
     gameboy_cart*& cartridge();
@@ -45,6 +46,8 @@ private:
     //u8 ime = 1;
 
     bool divReset = false;
+
+    u8 joypadButtons = 0x0F, joypadDirection = 0x0F; // all buttons not pressed
 };
 
 
