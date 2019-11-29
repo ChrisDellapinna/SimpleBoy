@@ -115,18 +115,6 @@ void gameboy_ppu::clock()
                     write8(0xFF00 + IO_PPU_STAT, read8(0xFF00 + IO_PPU_STAT) + 1);
                     //io[IO_PPU_STAT]++; // stat=3 (lcd transfer)
                 }
-                /*else if (clks % 456 == 252 && (read8(0xFF00 + IO_PPU_STAT) & 3) == 3) //(io[IO_PPU_STAT] & 3) == 3) // going from lcd transfer -> hblank
-                {
-                    // THE TIMING FOR THIS IS WRONG (NEED EXACT PPU TIMING)
-                    write8(0xFF00 + IO_PPU_STAT, read8(0xFF00 + IO_PPU_STAT) & 0xFC); // io[IO_PPU_STAT] &= 0xFC;
-
-                    // Trigger STAT IRQ if enabled
-                    if ((read8(0xFF00 + IO_PPU_STAT) & 8) != 0)
-                        bus->irq(INT_STAT);
-
-                    //if ((io[IO_PPU_STAT] & 8) != 0)
-                    //    bus->irq(INT_STAT);
-                }*/
 
                 // Perform the LY/LYC comparison, special case for line 153 (clk 4 compares LYC to 153, clk 8 is always flag reset)
                 if (read8(0xFF00 + IO_PPU_LY) == 0 && (read8(0xFF00 + IO_PPU_STAT) & 3) == 1)
@@ -172,16 +160,7 @@ void gameboy_ppu::clock()
                         }
                     }
                 }
-                /*if (!(io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 2)) // not on line 0
-                {
-                    if ((io[IO_PPU_STAT] & 4) != 0) // coincidence bit set
-                    {
-                        if ((io[IO_PPU_STAT] & 0x40) != 0) // STAT IRQ on LY=LYC set
-                            bus->irq(INT_STAT);
-                    }
-                }
-            }*/
-            // special case, on line 153, irq possibly triggered at clks=12 if LY=LYC=0
+                // special case, on line 153, irq possibly triggered at clks=12 if LY=LYC=0
                 else if ((clks % 456) == 12 && read8(0xFF00 + IO_PPU_LY) == 0 && (read8(0xFF00 + IO_PPU_STAT) & 3) == 1) // io[IO_PPU_LY] == 0 && (io[IO_PPU_STAT] & 3) == 1)
                 {
                     if ((read8(0xFF00 + IO_PPU_STAT) & 4) != 0) // coincidence bit set
@@ -189,19 +168,14 @@ void gameboy_ppu::clock()
                         if ((read8(0xFF00 + IO_PPU_STAT) & 0x40) != 0) // STAT IRQ on LY=LYC set
                             bus->irq(INT_STAT);
                     }
-
-                    /*if ((io[IO_PPU_STAT] & 4) != 0) // coincidence bit set
-                    {
-                        if ((io[IO_PPU_STAT] & 0x40) != 0) // STAT IRQ on LY=LYC set
-                            bus-> irq(INT_STAT);
-                    }*/
                 }
             }
         }
 
         //(io[IO_PPU_LCDC - PPU_IO_OFFSET] & 0x80) != 0) // && ()) //LCD is enabled && we're rendering (0 <= LY <= 143, STAT mode != 1, etc)
-        u8 ly = read8(0xFF00 + IO_PPU_LY);
-        if ((read8(0xFF00 + IO_PPU_LCDC) & 0x80) != 0 && ly >= 0 && ly <= 143 && (read8(0xFF00 + IO_PPU_STAT) & 3) != 1)  
+        u8 ly = read8(0xFF00 + IO_PPU_LY), stat = read8(0xFF00 + IO_PPU_STAT), lcdc = read8(0xFF00 + IO_PPU_LCDC);
+
+        if ((lcdc & 0x80) != 0 && ly >= 0 && ly <= 143 && (stat & 3) != 1)  
         {
             //printf("\nPPU rendering, clks = %i, fetcherClks = %i, pxcount = %i, px fifo size = %i, STAT mode = %i", clks, fetcherClksLeft, pxcount, pxfifo.size(), read8(0xFF00 + IO_PPU_STAT) & 3);
             u32 clksRefresh = clks % CLOCK_GB_SCANLINE;
@@ -209,23 +183,77 @@ void gameboy_ppu::clock()
             // Compile the list of sprites to render
             if (clksRefresh == 4)
             {
-
+                // if sprites enabled in lcdc..
             }
             // Rendering
             else if (clksRefresh == 84)  // Just started rendering process, setup a few variables for tile fetching and reset pxcount
             {
-                // We'll determine the tile in the bg map to start rendering and begin fetching data
-                x = read8(0xFF00 + IO_PPU_SCX), y = read8(0xFF00 + IO_PPU_LY) + read8(0xFF00 + IO_PPU_SCY); // coords of first px to render (simplified for now)
-                bgMapCol = (x / 8) % 32, bgMapRow = (y / 8) % 32; // col/row of tile in bg map
-                bgMapAddr = (((read8(0xFF00 + IO_PPU_LCDC) >> 3) & 1) == 0) ? 0x9800 : 0x9C00;
-                bgMapOffset = bgMapRow * 32 + bgMapCol;
+                u8 scx = read8(0xFF00 + IO_PPU_SCX), scy = read8(0xFF00 + IO_PPU_SCY), ly = read8(0xFF00 + IO_PPU_LY);
+                bool renderStartedWithWindow = false;
 
-                pxToDiscardX = x % 8;
-                bgTileVerticalOffset = (y % 8) * 2;
-                pxcount = 0;
-                fetcherClksLeft = 0;
+                if ((lcdc & 0x20) != 0)  // window enabled
+                {
+                    u8 wx = read8(0xFF00 + IO_PPU_WX), wy = read8(0xFF00 + IO_PPU_WY);
 
-                fetchTile();
+                    if (wy <= ly)  // window is visible on y axis
+                    {
+                        if (wx <= 7)  // window is visible on x axis
+                        {
+                            // Start rendering the window, this is the only thing that is going to be visible (bg covered if enabled)
+                            x = wx - 7, y = wy + ly;
+                            bgMapAddr = ((lcdc & 0x40) != 0) ? 0x9C00: 0x9800;
+                            bgMapCol = (x / 8), bgMapRow = (y / 8);
+                            bgMapOffset = bgMapRow * 32 + bgMapCol;
+
+                            pxToDiscardX = (abs(x) % 8);
+                            bgTileVerticalOffset = (y % 8) * 2;
+
+                            pxcount = 0;
+                            fetcherClksLeft = 0;
+                            pxUntilRenderWindow = 0xFF;
+
+                            renderStartedWithWindow = true;
+
+                            fetchTile(true);
+                        }
+                        else  // determine when we'll (presumably) stop rendering bg and start window rendering
+                        {
+                            pxUntilRenderWindow = (wx - 7);
+                        }
+                    }
+                    else
+                    {
+                        // Window enabled but not visible
+                        pxUntilRenderWindow = 0xFF;
+                    }
+                }
+                else
+                {
+                    // Window disabled
+                    pxUntilRenderWindow = 0xFF;
+                }
+
+                if ((lcdc & 1) != 0)  // bg enabled
+                {
+                    if (!renderStartedWithWindow)  // Rendering process not started by the window rendering process above
+                    {
+                        // Start rendering the background. If the window is enabled the time to start rendering the window would be set above
+                        x = scx, y = ly + scy; // coords of first px to render
+                        bgMapAddr = (((lcdc >> 3) & 1) == 0) ? 0x9800 : 0x9C00;
+                        bgMapCol = (x / 8) % 32, bgMapRow = (y / 8) % 32; // col/row of tile in bg map
+                        bgMapOffset = bgMapRow * 32 + bgMapCol;
+
+                        pxToDiscardX = x % 8;
+                        bgTileVerticalOffset = (y % 8) * 2;
+                        pxcount = 0;
+                        fetcherClksLeft = 0;
+
+                        fetchTile(false);
+                    }                    
+                }
+                else
+                    printf("\nWARNING: BG and Window disabled while rendering.");
+
             }
             else if (clksRefresh > 84 && pxcount < GB_LCD_XPIXELS)
             {
@@ -247,7 +275,7 @@ void gameboy_ppu::clock()
                         bgMapCol %= 32; // allows for wrap around of tile map
                         bgMapOffset = bgMapRow * 32 + bgMapCol;
 
-                        fetchTile();
+                        fetchTile(false);
                     }
                 }
 
@@ -256,11 +284,40 @@ void gameboy_ppu::clock()
                 {
                     // More than 8 px in FIFO so we're able to push a px to screen
                     if (pxToDiscardX <= 0)
+                    {
                         scanline[pxcount++] = pxfifo.front();
-                    else
-                        pxToDiscardX--;
+                        pxfifo.pop();
 
-                    pxfifo.pop();
+                        if (--pxUntilRenderWindow <= 0)  // time to start rendering window
+                        {
+                            while (!pxfifo.empty()) // must clear fifo then start fetching/rendering window background
+                                pxfifo.pop();
+
+                            u8 wx = read8(0xFF00 + IO_PPU_WX), wy = read8(0xFF00 + IO_PPU_WY);
+
+                            //x = wx - 7, y = ly + wy;
+                            if (wy > ly)
+                                printf("\nWY greater than LY!");
+
+                            x = 0, y = ly - wy;
+                            bgMapAddr = ((lcdc & 0x40) != 0) ? 0x9C00 : 0x9800;
+                            bgMapCol = x / 8, bgMapRow = y / 8;
+                            bgMapOffset = bgMapRow * 32 + bgMapCol;
+
+                            pxToDiscardX = 0;
+                            bgTileVerticalOffset = (y % 8) * 2;
+
+                            fetcherClksLeft = 0;
+                            pxUntilRenderWindow = 0xFF;
+
+                            fetchTile(true);
+                        }
+                    }
+                    else
+                    {
+                        pxToDiscardX--;
+                        pxfifo.pop();
+                    }
 
                     // If done rendering to the LCD
                     if (pxcount >= GB_LCD_XPIXELS)
@@ -270,10 +327,11 @@ void gameboy_ppu::clock()
 
                         fetcherClksLeft = 0;
 
-                        write8(0xFF00 + IO_PPU_STAT, read8(0xFF00 + IO_PPU_STAT) & 0xFC);  // stat mode = h-blank
+                        stat &= 0xFC;
+                        write8(0xFF00 + IO_PPU_STAT, stat);  // stat mode = h-blank
 
                         // Trigger STAT IRQ if enabled
-                        if ((read8(0xFF00 + IO_PPU_STAT) & 8) != 0)
+                        if ((stat & 8) != 0)
                             bus->irq(INT_STAT);
                         
                         renderScanline();
@@ -315,24 +373,26 @@ void gameboy_ppu::write8(u16 addr, u8 n)
  * Fetches the tile data referenced in the background map at (bgMapAddr + bgMapOffset).
  * Six cycles are added to fetcherClksLeft to emulate the three reads from VRAM.
  */
-void gameboy_ppu::fetchTile()
+void gameboy_ppu::fetchTile(bool windowFetch)
 {
     //printf("\nTile Fetch request at BGMap = %X + BGOffset = %X, clks = %i", bgMapAddr, bgMapOffset, clks);
-    u8 tileLSB, tileMSB, bgp = read8(0xFF00 + IO_PPU_BGP);
+    u8 tileLSB, tileMSB, bgp = read8(0xFF00 + IO_PPU_BGP), lcdc = read8(0xFF00 + IO_PPU_LCDC);
 
-    if (((read8(0xFF00 + IO_PPU_LCDC) >> 4) & 1) == 0) // bg data at $8800, signed tile number
+    if (((lcdc >> 4) & 1) == 0) // bg data at $8800, signed tile number
     {
-        
+        //printf("\nPrefetch tile num 1");
         s8 tileNum = bus->read8PPU(bgMapAddr + bgMapOffset);
+        //printf("\nPostfetch tile num 1");
         //printf("\nTile # (s): %i", tileNum);
         tileLSB = bus->read8PPU(0x9000 + bgTileVerticalOffset + (tileNum * 16));  // pattern 0 lies at $9000
         tileMSB = bus->read8PPU(0x9000 + bgTileVerticalOffset + (tileNum * 16) + 1);
-
     }
     else // bg data at $8000, unsigned tile number
     {
         //printf("\nBG Map addr = %X ", bgMapAddr + bgMapOffset);
+        //printf("\nPrefetch tile num 2");
         u8 tileNum = bus->read8PPU(bgMapAddr + bgMapOffset);
+        //printf("\nPostfetch tile num 2");
         //printf(" TileNum = %X", tileNum);
         //printf("\nTile # (u): %i", tileNum);
         tileLSB = bus->read8PPU(0x8000 + bgTileVerticalOffset + tileNum * 16);
@@ -344,9 +404,6 @@ void gameboy_ppu::fetchTile()
     {
         u8 paletteSelect = ((tileLSB >> i) & 1) | (((tileMSB >> i) & 1) << 1);
         fetchedTile[7 - i] = ((bgp >> (paletteSelect * 2)) & 3);
-        //printf("\nFetched tile: ");
-        //for (auto t : fetchedTile)
-        //    printf("%X ", t);
     }
 
     fetcherClksLeft += 6;

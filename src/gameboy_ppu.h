@@ -39,13 +39,14 @@ private:
     SDL_Window* window;
     SDL_Surface* screen;
 
-    u16 x, y, bgMapCol, bgMapRow, bgMapAddr, bgDataAddr, bgMapOffset, bgDataOffset;
-    u8 pxToDiscardX = 0, bgTileVerticalOffset = 0;
+    s32 x, y;
+    u16 bgMapCol, bgMapRow, bgMapAddr, bgDataAddr, bgMapOffset, bgDataOffset;
+    u8 pxToDiscardX = 0, bgTileVerticalOffset = 0, pxUntilRenderWindow;
 
     u8 read8(u16 addr);
     void write8(u16 addr, u8 n);
 
-    void fetchTile();
+    void fetchTile(bool windowFetch);
     void fetchSprite();
 
     void renderScanline();
