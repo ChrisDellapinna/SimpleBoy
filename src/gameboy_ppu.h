@@ -42,6 +42,7 @@ private:
     s32 x, y;
     u16 bgMapCol, bgMapRow, bgMapAddr, bgDataAddr, bgMapOffset, bgDataOffset;
     u8 pxToDiscardX = 0, bgTileVerticalOffset = 0, pxUntilRenderWindow;
+    bool tileDisplayDisabled = false;
 
     u8 read8(u16 addr);
     void write8(u16 addr, u8 n);

@@ -200,7 +200,7 @@ void gameboy_ppu::clock()
                         if (wx <= 7)  // window is visible on x axis
                         {
                             // Start rendering the window, this is the only thing that is going to be visible (bg covered if enabled)
-                            x = wx - 7, y = wy + ly;
+                            x = wx - 7, y = ly - wy;  // coords of px to render in the (window) map
                             bgMapAddr = ((lcdc & 0x40) != 0) ? 0x9C00: 0x9800;
                             bgMapCol = (x / 8), bgMapRow = (y / 8);
                             bgMapOffset = bgMapRow * 32 + bgMapCol;
@@ -251,97 +251,113 @@ void gameboy_ppu::clock()
                         fetchTile(false);
                     }                    
                 }
-                else
-                    printf("\nWARNING: BG and Window disabled while rendering.");
-
+                else if ((lcdc & 0x20) == 0)  // window and bg disabled               
+                    tileDisplayDisabled = true;
             }
             else if (clksRefresh > 84 && pxcount < GB_LCD_XPIXELS)
             {
-                // update the tile fetcher and pixel FIFO
-                // we'll do fetcher first so px data is ready for the FIFO before it is updated and renders
-                if (fetcherClksLeft == 0)
+                if (tileDisplayDisabled)
                 {
-                    // Done fetching tile, place in FIFO (if room) then work on next one
-                    if (pxfifo.size() <= 8)
+                    if (++pxcount >= GB_LCD_XPIXELS)
                     {
-                        for (int j = 0; j < 8; j++)
-                        {
-                            pxfifo.push(fetchedTile[j]);
-                        }
-
-                        // fetch next tile
-                        x += 8; // not needed
-                        bgMapCol++;
-                        bgMapCol %= 32; // allows for wrap around of tile map
-                        bgMapOffset = bgMapRow * 32 + bgMapCol;
-
-                        fetchTile(false);
-                    }
-                }
-
-                // and update the pixel FIFO
-                if (pxfifo.size() > 8)
-                {
-                    // More than 8 px in FIFO so we're able to push a px to screen
-                    if (pxToDiscardX <= 0)
-                    {
-                        scanline[pxcount++] = pxfifo.front();
-                        pxfifo.pop();
-
-                        if (--pxUntilRenderWindow <= 0)  // time to start rendering window
-                        {
-                            while (!pxfifo.empty()) // must clear fifo then start fetching/rendering window background
-                                pxfifo.pop();
-
-                            u8 wx = read8(0xFF00 + IO_PPU_WX), wy = read8(0xFF00 + IO_PPU_WY);
-
-                            //x = wx - 7, y = ly + wy;
-                            if (wy > ly)
-                                printf("\nWY greater than LY!");
-
-                            x = 0, y = ly - wy;
-                            bgMapAddr = ((lcdc & 0x40) != 0) ? 0x9C00 : 0x9800;
-                            bgMapCol = x / 8, bgMapRow = y / 8;
-                            bgMapOffset = bgMapRow * 32 + bgMapCol;
-
-                            pxToDiscardX = 0;
-                            bgTileVerticalOffset = (y % 8) * 2;
-
-                            fetcherClksLeft = 0;
-                            pxUntilRenderWindow = 0xFF;
-
-                            fetchTile(true);
-                        }
-                    }
-                    else
-                    {
-                        pxToDiscardX--;
-                        pxfifo.pop();
-                    }
-
-                    // If done rendering to the LCD
-                    if (pxcount >= GB_LCD_XPIXELS)
-                    {
-                        while (!pxfifo.empty())
-                            pxfifo.pop();
-
-                        fetcherClksLeft = 0;
-
                         stat &= 0xFC;
                         write8(0xFF00 + IO_PPU_STAT, stat);  // stat mode = h-blank
 
                         // Trigger STAT IRQ if enabled
                         if ((stat & 8) != 0)
                             bus->irq(INT_STAT);
-                        
+
                         renderScanline();
-                        //std::cin.ignore(80, '\n');
                     }
                 }
+                else
+                {
+                    // update the tile fetcher and pixel FIFO
+                    // we'll do fetcher first so px data is ready for the FIFO before it is updated and renders
+                    if (fetcherClksLeft == 0)
+                    {
+                        // Done fetching tile, place in FIFO (if room) then work on next one
+                        if (pxfifo.size() <= 8)
+                        {
+                            for (int j = 0; j < 8; j++)
+                            {
+                                pxfifo.push(fetchedTile[j]);
+                            }
 
-                // update timing for fetcher
-                if (fetcherClksLeft != 0)
-                    fetcherClksLeft--;
+                            // fetch next tile
+                            x += 8; // not needed
+                            bgMapCol++;
+                            bgMapCol %= 32; // allows for wrap around of tile map
+                            bgMapOffset = bgMapRow * 32 + bgMapCol;
+
+                            fetchTile(false);
+                        }
+                    }
+
+                    // and update the pixel FIFO
+                    if (pxfifo.size() > 8)
+                    {
+                        // More than 8 px in FIFO so we're able to push a px to screen
+                        if (pxToDiscardX <= 0)
+                        {
+                            scanline[pxcount++] = pxfifo.front();
+                            pxfifo.pop();
+
+                            if (--pxUntilRenderWindow <= 0)  // time to start rendering window
+                            {
+                                while (!pxfifo.empty()) // must clear fifo then start fetching/rendering window background
+                                    pxfifo.pop();
+
+                                u8 wx = read8(0xFF00 + IO_PPU_WX), wy = read8(0xFF00 + IO_PPU_WY);
+
+                                //x = wx - 7, y = ly + wy;
+                                if (wy > ly)
+                                    printf("\nWY greater than LY!");
+
+                                x = 0, y = ly - wy;
+                                bgMapAddr = ((lcdc & 0x40) != 0) ? 0x9C00 : 0x9800;
+                                bgMapCol = x / 8, bgMapRow = y / 8;
+                                bgMapOffset = bgMapRow * 32 + bgMapCol;
+
+                                pxToDiscardX = 0;
+                                bgTileVerticalOffset = (y % 8) * 2;
+
+                                fetcherClksLeft = 0;
+                                pxUntilRenderWindow = 0xFF;
+
+                                fetchTile(true);
+                            }
+                        }
+                        else
+                        {
+                            pxToDiscardX--;
+                            pxfifo.pop();
+                        }
+
+                        // If done rendering to the LCD
+                        if (pxcount >= GB_LCD_XPIXELS)
+                        {
+                            while (!pxfifo.empty())
+                                pxfifo.pop();
+
+                            fetcherClksLeft = 0;
+
+                            stat &= 0xFC;
+                            write8(0xFF00 + IO_PPU_STAT, stat);  // stat mode = h-blank
+
+                            // Trigger STAT IRQ if enabled
+                            if ((stat & 8) != 0)
+                                bus->irq(INT_STAT);
+
+                            renderScanline();
+                            //std::cin.ignore(80, '\n');
+                        }
+                    }
+
+                    // update timing for fetcher
+                    if (fetcherClksLeft != 0)
+                        fetcherClksLeft--;
+                }
             }
         }
 
@@ -430,14 +446,25 @@ void gameboy_ppu::renderScanline()
         SDL_RenderClear(renderer);
     }
 
-    for (auto p : scanline)
+    if (!tileDisplayDisabled)
     {
-        auto col = cols[p];
+        for (auto p : scanline)
+        {
+            auto col = cols[p];
 
-        SDL_SetRenderDrawColor(renderer, col, col, col, 255);
-        if (SDL_RenderDrawPoint(renderer, x++, ly) < 0)
+            SDL_SetRenderDrawColor(renderer, col, col, col, 255);
+            if (SDL_RenderDrawPoint(renderer, x++, ly) < 0)
+                printf("\n\nSDL Error: %s", SDL_GetError());
+        }
+    }
+    else
+    {
+        SDL_SetRenderDrawColor(renderer, cols[3], cols[3], cols[3], 255);
+        if (SDL_RenderDrawLine(renderer, 0, ly, GB_LCD_XPIXELS - 1, ly) < 0)
             printf("\n\nSDL Error: %s", SDL_GetError());
     }
+
+    tileDisplayDisabled = false;
 
     //printf("\nLY: %i, BGP: %X", ly, read8(0xFF00 + IO_PPU_BGP));
     
